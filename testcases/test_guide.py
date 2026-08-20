@@ -1,5 +1,5 @@
 from playwright.sync_api import expect
-from pages.guide_page import GuidePage
+from pages.guide.guide_page import GuidePage
 
 
 def test_guide_three_steps(open_page):

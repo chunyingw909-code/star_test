@@ -1,6 +1,3 @@
-from playwright.sync_api import expect
-
-
 class GuidePage:
     def __init__(self, page):
         self.page = page
@@ -11,7 +8,7 @@ class GuidePage:
 
 
     def active_step_label(self):
-        # 当前步骤的文字
+        # 当前步骤的名字
         return self.dialog.locator('.MuiStepLabel-label.Mui-active')
 
     def step_title(self):

@@ -6,6 +6,7 @@ def test_text_default(free_text_page,assert_screenshot):
     expect(free_text_page.canvas_widgets().first).to_contain_text('标题')
     assert_screenshot(free_text_page.canvas_widgets().first, 'text_default.png')
 
+
 # 初始内容字号颜色
 def test_text_select_shows_properties(free_text_page):
     free_text_page.click_widget()
@@ -14,12 +15,14 @@ def test_text_select_shows_properties(free_text_page):
     expect(free_text_page.prop_font_size).to_have_value('24')
     expect(free_text_page.prop_color).to_have_value('#ffffff')
 
+
 # 点空白区域 属性面板消失
 def test_text_click_blank_hides_properties(free_text_page):
     free_text_page.click_widget()
     expect(free_text_page.prop_panel).to_be_visible()
     free_text_page.click_canvas_blank()
     expect(free_text_page.prop_panel).to_be_hidden()
+
 
 # 改内容里面的字
 def test_text_modify_content(free_text_page, assert_screenshot):
@@ -44,6 +47,7 @@ def test_text_delete(free_text_page):
     free_text_page.delete_widget()
     expect(free_text_page.canvas_widgets()).to_have_count(0)
 
+
 # 清空内容，画布上不显示文字
 def test_text_clear_content(free_text_page, assert_screenshot):
     free_text_page.click_widget()
@@ -60,6 +64,7 @@ def test_text_increase_font_size(free_text_page, assert_screenshot):
     expect(free_text_page.prop_font_size).to_have_value('48')
     assert_screenshot(free_text_page.canvas_widgets().first, 'text_font_size_48.png')
 
+
 # 字号调小
 def test_text_decrease_font_size(free_text_page, assert_screenshot):
     free_text_page.click_widget()
@@ -75,6 +80,7 @@ def test_text_set_unit(free_text_page, assert_screenshot):
     expect(free_text_page.canvas_widgets().first).to_contain_text('V')
     expect(free_text_page.prop_unit).to_have_value('V')
     assert_screenshot(free_text_page.canvas_widgets().first, 'text_unit_v.png')
+
 
 # 切换对齐方式为居中
 def test_text_align_center(free_text_page, assert_screenshot):
@@ -110,4 +116,3 @@ def test_text_weight_bold(free_text_page, assert_screenshot):
     free_text_page.page.get_by_role('option', name='粗体').click()
     expect(free_text_page.prop_weight).to_have_text('粗体')
     assert_screenshot(free_text_page.canvas_widgets().first, 'text_weight_bold.png')
-

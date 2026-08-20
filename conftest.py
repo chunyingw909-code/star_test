@@ -4,10 +4,16 @@ from playwright.sync_api import sync_playwright
 from common.utils import read_yaml
 from PIL import Image
 import os
-from pages.guide_page import GuidePage
-from pages.editor_page import EditorPage
-from pages.free_layout_page import FreeLayoutPage
-from pages.free_text_page import FreeTextPage
+
+from pages.guide.guide_page import GuidePage
+from pages.editor.editor_page import EditorPage
+from pages.editor.free_layout_page import FreeLayoutPage
+from pages.editor.free_text_page import FreeTextPage
+from pages.editor.grid_layout_page import GridLayoutPage
+from pages.editor.grid_text_page import GridTextPage
+from pages.editor.free_chart_page import FreeChartPage
+
+
 config = read_yaml('config/config.yaml')
 
 # 生成图片对比
@@ -102,10 +108,33 @@ def free_layout_page(home_page):
     editor.edit_manage_button.click()
     return FreeLayoutPage(home_page)
 
-# 界面编辑器-自由布局-文本
+# 自由-文本
 @pytest.fixture
 def free_text_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('文本').click()
     return FreeTextPage(free_layout_page.page)
 
+# 自由-图表
+@pytest.fixture
+def free_chart_page(free_layout_page):
+    free_layout_page.add_component_button.click()
+    free_layout_page.component_item('图表').click()
+    return FreeChartPage(free_layout_page.page)
+
+# 进入界面编辑器-栅格布局的编辑页
+@pytest.fixture
+def grid_layout_page(home_page):
+    editor = EditorPage(home_page)
+    editor.editor_button.click()
+    editor.edit_button.click()
+    editor.grid_layout_button.click()
+    return GridLayoutPage(home_page)
+
+# 栅格-文本
+@pytest.fixture
+def grid_text_page(grid_layout_page):
+    grid_layout_page.drag_to_canvas('TextWidget')
+    gtp = GridTextPage(grid_layout_page.page)
+    gtp.click_widget()
+    return gtp
