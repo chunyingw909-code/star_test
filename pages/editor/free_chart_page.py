@@ -5,7 +5,7 @@ class FreeChartPage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
         # 属性面板
-        self.prop_panel = page.locator('.css-1qupz7j')
+        self.prop_panel = page.locator('.MuiBox-root', has_text='ChartWidget').first
         self.prop_title = page.get_by_label('标题')
         self.prop_chart_type = page.locator('.MuiFormControl-root', has_text='图表类型').get_by_role('combobox')
         self.prop_satellite_id = page.get_by_label('卫星 ID')

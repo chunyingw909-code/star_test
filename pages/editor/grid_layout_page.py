@@ -14,6 +14,10 @@ class GridLayoutPage:
         # 画布
         self.canvas = page.get_by_test_id('dropzone:root:default-zone')
 
+        # 删除复制按钮
+        self.duplicate_button = page.locator('button[title="Duplicate"]')
+        self.delete_button = page.locator('button[title="Delete"]')
+
     # 根据test_id获取左侧组件库中的某个可拖拽项
     def drawer_item(self, name):
         return self.page.get_by_test_id(f'drawer-item:{name}')

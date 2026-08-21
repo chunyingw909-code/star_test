@@ -11,3 +11,4 @@ class GridTextPage(GridLayoutPage):
         self.prop_unit = page.get_by_title('单位')
         self.prop_weight = page.get_by_title('粗细')
         self.prop_align = page.get_by_title('对齐')
+        self.prop_binding_mode = page.get_by_title('绑定模式')

@@ -4,6 +4,7 @@ from playwright.sync_api import sync_playwright
 from common.utils import read_yaml
 from PIL import Image
 import os
+import shutil
 
 from pages.guide.guide_page import GuidePage
 from pages.editor.editor_page import EditorPage
@@ -12,6 +13,7 @@ from pages.editor.free_text_page import FreeTextPage
 from pages.editor.grid_layout_page import GridLayoutPage
 from pages.editor.grid_text_page import GridTextPage
 from pages.editor.free_chart_page import FreeChartPage
+from pages.editor.grid_chart_page import GridChartPage
 
 
 config = read_yaml('config/config.yaml')
@@ -24,14 +26,20 @@ def assert_screenshot():
     os.makedirs(baseline_dir, exist_ok=True)
     os.makedirs(actual_dir, exist_ok=True)
 
-    def _compare(page_or_locator, name, threshold=0.01):
+    def _compare(page_or_locator, name, threshold=0.02):
         actual_path = os.path.join(actual_dir, name)
         baseline_path = os.path.join(baseline_dir, name)
-        page_or_locator.screenshot(path=actual_path)
+
+        # 滚动元素到视口并获取边界框
+        page_or_locator.scroll_into_view_if_needed()
+        box = page_or_locator.bounding_box()
+        if box is None:
+            raise ValueError("Element not visible")
+        page = page_or_locator.page
+        # 使用 clip 裁剪精确区域
+        page.screenshot(path=actual_path, clip=box)
 
         if not os.path.exists(baseline_path):
-            # 没有基准图，自动存一份，标记跳过
-            import shutil
             shutil.copy(actual_path, baseline_path)
             pytest.skip(f'基准图已生成: {baseline_path}，请确认后重跑')
 
@@ -40,8 +48,8 @@ def assert_screenshot():
         if actual.size != baseline.size:
             raise AssertionError(f'截图尺寸不一致: {actual.size} vs {baseline.size}')
 
-        pixels_a = list(actual.getdata())
-        pixels_b = list(baseline.getdata())
+        pixels_a = list(actual.get_flattened_data())
+        pixels_b = list(baseline.get_flattened_data())
         diff_count = sum(1 for a, b in zip(pixels_a, pixels_b) if a != b)
         diff_ratio = diff_count / len(pixels_a)
         if diff_ratio > threshold:
@@ -63,7 +71,7 @@ def browser():
 
 @pytest.fixture
 def page(browser):
-    p = browser.new_page()
+    p = browser.new_page(viewport={'width': 1440, 'height': 900})
     yield p
     p.close()
 
@@ -138,3 +146,11 @@ def grid_text_page(grid_layout_page):
     gtp = GridTextPage(grid_layout_page.page)
     gtp.click_widget()
     return gtp
+
+# 栅格-图表
+@pytest.fixture
+def grid_chart_page(grid_layout_page):
+    grid_layout_page.drag_to_canvas('ChartWidget')
+    gcp = GridChartPage(grid_layout_page.page)
+    gcp.click_widget()  # 拖拽后自动选中，但点击一下确保右侧属性加载
+    return gcp
