@@ -96,4 +96,4 @@ def test_text_weight_bold(grid_text_page, assert_screenshot):
 # 点击空白，右侧切换回Page属性
 def test_text_click_blank_shows_page(grid_text_page):
     grid_text_page.click_canvas_blank()
-    expect(grid_text_page.page.locator('h2', has_text='Page')).to_be_visible()
+    expect(grid_text_page.page.get_by_title('布局列数')).to_be_visible()

@@ -50,4 +50,10 @@ class GridLayoutPage:
 
     # 点击画布空白处，右侧切回Page属性
     def click_canvas_blank(self):
-        self.canvas.click(position={'x': 1, 'y': 1})
+        for _ in range(3):
+            # x=900: 在组件右边缘731和viewport边缘1280之间
+            # y=500: 在组件底部370下方
+            self.page.mouse.click(900, 500)
+            self.page.wait_for_timeout(300)
+            if self.page.get_by_title('布局列数').is_visible():
+                return
