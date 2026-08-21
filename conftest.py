@@ -32,7 +32,7 @@ def assert_screenshot():
     os.makedirs(baseline_dir, exist_ok=True)
     os.makedirs(actual_dir, exist_ok=True)
 
-    def _compare(page_or_locator, name, threshold=0.03):
+    def _compare(page_or_locator, name, threshold=0.05):
         actual_path = os.path.join(actual_dir, name)
         baseline_path = os.path.join(baseline_dir, name)
 

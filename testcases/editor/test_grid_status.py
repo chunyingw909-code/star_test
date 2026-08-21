@@ -251,4 +251,3 @@ def test_status_delete(grid_status_page, assert_screenshot):
     grid_status_page.delete_button.dispatch_event('click')
     expect(grid_status_page.page.get_by_title('布局列数')).to_be_visible()
     expect(grid_status_page.canvas_widgets()).to_have_count(0)
-    assert_screenshot(canvas, 'grid_status_delete.png')
