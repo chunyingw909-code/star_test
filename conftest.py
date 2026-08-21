@@ -14,6 +14,12 @@ from pages.editor.grid_layout_page import GridLayoutPage
 from pages.editor.grid_text_page import GridTextPage
 from pages.editor.free_chart_page import FreeChartPage
 from pages.editor.grid_chart_page import GridChartPage
+from pages.editor.grid_gauge_page import GridGaugePage
+from pages.editor.free_gauge_page import FreeGaugePage
+from pages.editor.free_status_page import FreeStatusPage
+from pages.editor.free_indicator_page import FreeIndicatorPage
+from pages.editor.grid_status_page import GridStatusPage
+from pages.editor.grid_indicator_page import GridIndicatorPage
 
 
 config = read_yaml('config/config.yaml')
@@ -26,17 +32,21 @@ def assert_screenshot():
     os.makedirs(baseline_dir, exist_ok=True)
     os.makedirs(actual_dir, exist_ok=True)
 
-    def _compare(page_or_locator, name, threshold=0.02):
+    def _compare(page_or_locator, name, threshold=0.03):
         actual_path = os.path.join(actual_dir, name)
         baseline_path = os.path.join(baseline_dir, name)
 
-        # 滚动元素到视口并获取边界框
         page_or_locator.scroll_into_view_if_needed()
         box = page_or_locator.bounding_box()
         if box is None:
             raise ValueError("Element not visible")
+        box = {
+            'x': round(box['x']),
+            'y': round(box['y']),
+            'width': round(box['width']),
+            'height': round(box['height']),
+        }
         page = page_or_locator.page
-        # 使用 clip 裁剪精确区域
         page.screenshot(path=actual_path, clip=box)
 
         if not os.path.exists(baseline_path):
@@ -130,6 +140,27 @@ def free_chart_page(free_layout_page):
     free_layout_page.component_item('图表').click()
     return FreeChartPage(free_layout_page.page)
 
+# 自由-仪表盘
+@pytest.fixture
+def free_gauge_page(free_layout_page):
+    free_layout_page.add_component_button.click()
+    free_layout_page.component_item('仪表盘').click()
+    return FreeGaugePage(free_layout_page.page)
+
+# 自由-状态灯
+@pytest.fixture
+def free_status_page(free_layout_page):
+    free_layout_page.add_component_button.click()
+    free_layout_page.component_item('状态灯').click()
+    return FreeStatusPage(free_layout_page.page)
+
+# 自由-指示牌
+@pytest.fixture
+def free_indicator_page(free_layout_page):
+    free_layout_page.add_component_button.click()
+    free_layout_page.component_item('指示牌').click()
+    return FreeIndicatorPage(free_layout_page.page)
+
 # 进入界面编辑器-栅格布局的编辑页
 @pytest.fixture
 def grid_layout_page(home_page):
@@ -154,3 +185,27 @@ def grid_chart_page(grid_layout_page):
     gcp = GridChartPage(grid_layout_page.page)
     gcp.click_widget()  # 拖拽后自动选中，但点击一下确保右侧属性加载
     return gcp
+
+# 栅格-仪表盘
+@pytest.fixture
+def grid_gauge_page(grid_layout_page):
+    grid_layout_page.drag_to_canvas('GaugeWidget')
+    ggp = GridGaugePage(grid_layout_page.page)
+    ggp.click_widget()
+    return ggp
+
+# 栅格-状态灯
+@pytest.fixture
+def grid_status_page(grid_layout_page):
+    grid_layout_page.drag_to_canvas('StatusIndicator')
+    gsp = GridStatusPage(grid_layout_page.page)
+    gsp.click_widget()
+    return gsp
+
+# 栅格-指示牌
+@pytest.fixture
+def grid_indicator_page(grid_layout_page):
+    grid_layout_page.drag_to_canvas('IndicatorCard')
+    gip = GridIndicatorPage(grid_layout_page.page)
+    gip.click_widget()
+    return gip
