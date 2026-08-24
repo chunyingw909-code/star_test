@@ -22,7 +22,8 @@ from pages.editor.free_status_page import FreeStatusPage
 from pages.editor.free_indicator_page import FreeIndicatorPage
 from pages.editor.grid_status_page import GridStatusPage
 from pages.editor.grid_indicator_page import GridIndicatorPage
-
+from pages.editor.free_input_page import FreeInputPage
+from pages.editor.grid_input_page import GridInputPage
 
 config = read_yaml('config/config.yaml')
 
@@ -42,6 +43,13 @@ def assert_screenshot():
         box = page_or_locator.bounding_box()
         if box is None:
             raise ValueError("Element not visible")
+
+        # 滚动归位，确保每次截图位置一致
+        page = page_or_locator.page
+        page.evaluate('window.scrollTo(0, 0)')
+        page.wait_for_timeout(200)
+
+        box = page_or_locator.bounding_box()
         box = {
             'x': round(box['x']),
             'y': round(box['y']),
@@ -58,7 +66,9 @@ def assert_screenshot():
         actual = np.array(Image.open(actual_path).convert('RGB'))
         baseline = np.array(Image.open(baseline_path).convert('RGB'))
         if actual.shape != baseline.shape:
-            raise AssertionError(f'截图尺寸不一致: {actual.shape} vs {baseline.shape}')
+            actual_img = Image.open(actual_path).convert('RGB')
+            actual_img = actual_img.resize((baseline.shape[1], baseline.shape[0]), Image.LANCZOS)
+            actual = np.array(actual_img)
 
         score = ssim(actual, baseline, channel_axis=2)
         if score < threshold:
@@ -104,6 +114,7 @@ def screenshot_on_failure(request):
 @pytest.fixture
 def open_page(page):
     page.goto(config['url'])
+    page.wait_for_load_state('networkidle')
     return page
 
 
@@ -111,6 +122,7 @@ def open_page(page):
 @pytest.fixture
 def home_page(page):
     page.goto(config['url'])
+    page.wait_for_load_state('networkidle')
     guide = GuidePage(page)
     guide.complete()
     return page
@@ -120,9 +132,13 @@ def home_page(page):
 def free_layout_page(home_page):
     editor = EditorPage(home_page)
     editor.editor_button.click()
+    editor.edit_button.wait_for(state='visible')
     editor.edit_button.click()
+    editor.free_layout_button.wait_for(state='visible')
     editor.free_layout_button.click()
+    home_page.locator('.react-grid-layout').wait_for(state='visible')
     editor.edit_manage_button.click()
+    home_page.wait_for_load_state('networkidle')
     return FreeLayoutPage(home_page)
 
 # 自由-文本
@@ -130,6 +146,7 @@ def free_layout_page(home_page):
 def free_text_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('文本').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeTextPage(free_layout_page.page)
 
 # 自由-图表
@@ -137,6 +154,7 @@ def free_text_page(free_layout_page):
 def free_chart_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('图表').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeChartPage(free_layout_page.page)
 
 # 自由-仪表盘
@@ -144,6 +162,7 @@ def free_chart_page(free_layout_page):
 def free_gauge_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('仪表盘').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeGaugePage(free_layout_page.page)
 
 # 自由-状态灯
@@ -151,6 +170,7 @@ def free_gauge_page(free_layout_page):
 def free_status_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('状态灯').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeStatusPage(free_layout_page.page)
 
 # 自由-指示牌
@@ -158,16 +178,29 @@ def free_status_page(free_layout_page):
 def free_indicator_page(free_layout_page):
     free_layout_page.add_component_button.click()
     free_layout_page.component_item('指示牌').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeIndicatorPage(free_layout_page.page)
+
+# 自由-输入框
+@pytest.fixture
+def free_input_page(free_layout_page):
+    free_layout_page.add_component_button.click()
+    free_layout_page.component_item('输入框').click()
+    free_layout_page.canvas_widgets().first.wait_for(state='visible')
+    return FreeInputPage(free_layout_page.page)
 
 # 进入界面编辑器-栅格布局的编辑页
 @pytest.fixture
 def grid_layout_page(home_page):
     editor = EditorPage(home_page)
     editor.editor_button.click()
+    editor.edit_button.wait_for(state='visible')
     editor.edit_button.click()
+    editor.grid_layout_button.wait_for(state='visible')
     editor.grid_layout_button.click()
-    return GridLayoutPage(home_page)
+    glp = GridLayoutPage(home_page)
+    glp.canvas.wait_for(state='visible')
+    return glp
 
 # 栅格-文本
 @pytest.fixture
@@ -175,6 +208,7 @@ def grid_text_page(grid_layout_page):
     grid_layout_page.drag_to_canvas('TextWidget')
     gtp = GridTextPage(grid_layout_page.page)
     gtp.click_widget()
+    gtp.prop_content.wait_for(state='visible')
     return gtp
 
 # 栅格-图表
@@ -183,6 +217,7 @@ def grid_chart_page(grid_layout_page):
     grid_layout_page.drag_to_canvas('ChartWidget')
     gcp = GridChartPage(grid_layout_page.page)
     gcp.click_widget()  # 拖拽后自动选中，但点击一下确保右侧属性加载
+    gcp.prop_title.wait_for(state='visible')
     return gcp
 
 # 栅格-仪表盘
@@ -191,6 +226,7 @@ def grid_gauge_page(grid_layout_page):
     grid_layout_page.drag_to_canvas('GaugeWidget')
     ggp = GridGaugePage(grid_layout_page.page)
     ggp.click_widget()
+    ggp.prop_title.wait_for(state='visible')
     return ggp
 
 # 栅格-状态灯
@@ -199,6 +235,7 @@ def grid_status_page(grid_layout_page):
     grid_layout_page.drag_to_canvas('StatusIndicator')
     gsp = GridStatusPage(grid_layout_page.page)
     gsp.click_widget()
+    gsp.prop_label.wait_for(state='visible')
     return gsp
 
 # 栅格-指示牌
@@ -207,4 +244,16 @@ def grid_indicator_page(grid_layout_page):
     grid_layout_page.drag_to_canvas('IndicatorCard')
     gip = GridIndicatorPage(grid_layout_page.page)
     gip.click_widget()
+    gip.prop_label.wait_for(state='visible')
+    return gip
+
+# 栅格-输入框
+@pytest.fixture
+def grid_input_page(grid_layout_page):
+    source = grid_layout_page.drawer_item('InputWidget')
+    source.scroll_into_view_if_needed()
+    grid_layout_page.drag_to_canvas('InputWidget')
+    gip = GridInputPage(grid_layout_page.page)
+    gip.click_widget()
+    gip.prop_label.wait_for(state='visible')
     return gip

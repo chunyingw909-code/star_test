@@ -16,12 +16,13 @@ class GuidePage:
         return self.dialog.locator('.MuiDialogTitle-root')
 
     def complete(self):
-        # 跳过向导页面
         try:
             self.dialog.wait_for(state='visible', timeout=5000)
             self.next_button.click()
+            self.next_button.wait_for(state='visible')  # 等第二步渲染
             self.next_button.click()
+            self.finish_button.wait_for(state='visible')
             self.finish_button.click()
             self.dialog.wait_for(state='hidden')
         except TimeoutError:
-            pass  # 没弹窗说明不需要引导，直接过
+            pass
