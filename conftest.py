@@ -5,6 +5,8 @@ from common.utils import read_yaml
 from PIL import Image
 import os
 import shutil
+from skimage.metrics import structural_similarity as ssim
+import numpy as np
 
 from pages.guide.guide_page import GuidePage
 from pages.editor.editor_page import EditorPage
@@ -32,7 +34,7 @@ def assert_screenshot():
     os.makedirs(baseline_dir, exist_ok=True)
     os.makedirs(actual_dir, exist_ok=True)
 
-    def _compare(page_or_locator, name, threshold=0.05):
+    def _compare(page_or_locator, name, threshold=0.95):
         actual_path = os.path.join(actual_dir, name)
         baseline_path = os.path.join(baseline_dir, name)
 
@@ -53,17 +55,14 @@ def assert_screenshot():
             shutil.copy(actual_path, baseline_path)
             pytest.skip(f'基准图已生成: {baseline_path}，请确认后重跑')
 
-        actual = Image.open(actual_path)
-        baseline = Image.open(baseline_path)
-        if actual.size != baseline.size:
-            raise AssertionError(f'截图尺寸不一致: {actual.size} vs {baseline.size}')
+        actual = np.array(Image.open(actual_path).convert('RGB'))
+        baseline = np.array(Image.open(baseline_path).convert('RGB'))
+        if actual.shape != baseline.shape:
+            raise AssertionError(f'截图尺寸不一致: {actual.shape} vs {baseline.shape}')
 
-        pixels_a = list(actual.get_flattened_data())
-        pixels_b = list(baseline.get_flattened_data())
-        diff_count = sum(1 for a, b in zip(pixels_a, pixels_b) if a != b)
-        diff_ratio = diff_count / len(pixels_a)
-        if diff_ratio > threshold:
-            raise AssertionError(f'截图差异 {diff_ratio:.2%} 超过阈值 {threshold:.2%}')
+        score = ssim(actual, baseline, channel_axis=2)
+        if score < threshold:
+            raise AssertionError(f'SSIM {score:.4f} 低于阈值 {threshold}')
 
     return _compare
 
