@@ -4,7 +4,7 @@ from pages.editor.free_layout_page import FreeLayoutPage
 class FreeInputPage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
-        self.prop_panel = page.locator('.MuiBox-root', has_text='InputWidget').first
+        self.prop_panel = page.locator('.MuiBox-root', has_text='InputWidget').last
         self.prop_label = page.get_by_label('标签')
         self.prop_placeholder = page.get_by_label('占位提示')
         self.prop_default_value = page.get_by_label('默认值')

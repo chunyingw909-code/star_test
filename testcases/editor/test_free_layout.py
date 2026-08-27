@@ -1,6 +1,11 @@
+import allure
 from playwright.sync_api import expect
 
-# 点击"添加组件"后弹出的窗口列表
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-组件库')
+@allure.title('点击"添加组件"后弹出的窗口列表')
+@allure.severity(allure.severity_level.CRITICAL)
 def test_add_component_menu(free_layout_page):
     free_layout_page.add_component_button.click()
     expect(free_layout_page.menu).to_be_visible()

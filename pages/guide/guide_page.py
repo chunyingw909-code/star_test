@@ -1,3 +1,6 @@
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+
 class GuidePage:
     def __init__(self, page):
         self.page = page
@@ -24,5 +27,5 @@ class GuidePage:
             self.finish_button.wait_for(state='visible')
             self.finish_button.click()
             self.dialog.wait_for(state='hidden')
-        except TimeoutError:
+        except PlaywrightTimeoutError:
             pass

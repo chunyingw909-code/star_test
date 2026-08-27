@@ -10,17 +10,9 @@ from playwright.sync_api import expect
 @allure.severity(allure.severity_level.BLOCKER)
 def test_text_default(free_text_page, assert_screenshot):
     free_text_page.click_widget()
-    text_el = free_text_page.canvas_widgets().first.locator('p')
+    # 画布断言
     expect(free_text_page.canvas_widgets()).to_have_count(1)
     expect(free_text_page.canvas_widgets().first).to_contain_text('标题')
-    # 右侧断言
-    expect(free_text_page.prop_content).to_have_value('标题')
-    expect(free_text_page.prop_font_size).to_have_value('24')
-    expect(free_text_page.prop_color).to_have_value('#ffffff')
-    # 画布断言
-    expect(text_el).to_have_css('font-size', '24px')
-    expect(text_el).to_have_css('color', 'rgb(255, 255, 255)')
-    expect(text_el).to_have_css('font-weight', '700')
     # 截图断言
     assert_screenshot(free_text_page.canvas_widgets().first, 'free_text_default.png')
 
@@ -31,7 +23,7 @@ def test_text_default(free_text_page, assert_screenshot):
 @allure.story('自由布局-文本组件')
 @allure.title('点击组件，属性面板显示默认值')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_text_select_shows_properties(free_text_page):
+def test_text_select_shows_properties(free_text_page, assert_screenshot):
     free_text_page.click_widget()
     expect(free_text_page.prop_panel).to_be_visible()
     # 右侧断言
@@ -43,17 +35,21 @@ def test_text_select_shows_properties(free_text_page):
     expect(text_el).to_have_css('font-size', '24px')
     expect(text_el).to_have_css('color', 'rgb(255, 255, 255)')
     expect(text_el).to_have_css('font-weight', '700')
+    # 截图断言
+    assert_screenshot(free_text_page.canvas_widgets().first, 'free_text_select_shows_properties.png')
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-文本组件')
 @allure.title('点击画布空白区域，属性面板隐藏')
 @allure.severity(allure.severity_level.NORMAL)
-def test_text_click_blank_hides_properties(free_text_page):
+def test_text_click_blank_hides_properties(free_text_page, assert_screenshot):
     free_text_page.click_widget()
     expect(free_text_page.prop_panel).to_be_visible()
     free_text_page.click_canvas_blank()
     expect(free_text_page.prop_panel).to_be_hidden()
+    # 截图断言
+    assert_screenshot(free_text_page.canvas_widgets().first, 'free_text_click_blank_hides_properties.png')
 
 
 # ==================== 内容修改 ====================

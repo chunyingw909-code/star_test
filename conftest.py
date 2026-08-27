@@ -9,21 +9,6 @@ from skimage.metrics import structural_similarity as ssim
 import numpy as np
 
 from pages.guide.guide_page import GuidePage
-from pages.editor.editor_page import EditorPage
-from pages.editor.free_layout_page import FreeLayoutPage
-from pages.editor.free_text_page import FreeTextPage
-from pages.editor.grid_layout_page import GridLayoutPage
-from pages.editor.grid_text_page import GridTextPage
-from pages.editor.free_chart_page import FreeChartPage
-from pages.editor.grid_chart_page import GridChartPage
-from pages.editor.grid_gauge_page import GridGaugePage
-from pages.editor.free_gauge_page import FreeGaugePage
-from pages.editor.free_status_page import FreeStatusPage
-from pages.editor.free_indicator_page import FreeIndicatorPage
-from pages.editor.grid_status_page import GridStatusPage
-from pages.editor.grid_indicator_page import GridIndicatorPage
-from pages.editor.free_input_page import FreeInputPage
-from pages.editor.grid_input_page import GridInputPage
 
 config = read_yaml('config/config.yaml')
 
@@ -39,17 +24,38 @@ def assert_screenshot():
         actual_path = os.path.join(actual_dir, name)
         baseline_path = os.path.join(baseline_dir, name)
 
-        page_or_locator.scroll_into_view_if_needed()
         box = page_or_locator.bounding_box()
         if box is None:
             raise ValueError("Element not visible")
 
-        # 滚动归位，确保每次截图位置一致
-        page = page_or_locator.page
-        page.evaluate('window.scrollTo(0, 0)')
-        page.wait_for_timeout(200)
+        # 自由布局画布本身是可横向/纵向滚动的容器，组件默认宽度可能超出
+        # 画布的可视区域，选中后右侧属性面板还会盖在画布上层。不管定位到
+        # 哪个元素，只要沿 DOM 往上找到第一个 overflow:auto/scroll 的祖先，
+        # 用它的 clientWidth/clientHeight（不含自身滚动条）裁剪，裁剪区域
+        # 就不可能包含属性面板或滚动条像素——这是几何上的硬边界，不依赖任何
+        # 具体页面对象的定位器，也跟动画/过渡的时机无关
+        clip_bound = page_or_locator.evaluate("""
+            el => {
+                let node = el.parentElement;
+                while (node) {
+                    const cs = getComputedStyle(node);
+                    const scrollable = ['auto', 'scroll'].includes(cs.overflowX)
+                        || ['auto', 'scroll'].includes(cs.overflowY);
+                    if (scrollable) {
+                        const r = node.getBoundingClientRect();
+                        return { right: r.x + node.clientWidth, bottom: r.y + node.clientHeight };
+                    }
+                    node = node.parentElement;
+                }
+                return null;
+            }
+        """)
+        if clip_bound is not None:
+            if clip_bound['right'] < box['x'] + box['width']:
+                box['width'] = max(0, clip_bound['right'] - box['x'])
+            if clip_bound['bottom'] < box['y'] + box['height']:
+                box['height'] = max(0, clip_bound['bottom'] - box['y'])
 
-        box = page_or_locator.bounding_box()
         box = {
             'x': round(box['x']),
             'y': round(box['y']),
@@ -65,11 +71,6 @@ def assert_screenshot():
 
         actual = np.array(Image.open(actual_path).convert('RGB'))
         baseline = np.array(Image.open(baseline_path).convert('RGB'))
-        if actual.shape != baseline.shape:
-            actual_img = Image.open(actual_path).convert('RGB')
-            actual_img = actual_img.resize((baseline.shape[1], baseline.shape[0]), Image.LANCZOS)
-            actual = np.array(actual_img)
-
         score = ssim(actual, baseline, channel_axis=2)
         if score < threshold:
             raise AssertionError(f'SSIM {score:.4f} 低于阈值 {threshold}')
@@ -126,134 +127,3 @@ def home_page(page):
     guide = GuidePage(page)
     guide.complete()
     return page
-
-# 进入界面编辑器-自由布局的编辑页
-@pytest.fixture
-def free_layout_page(home_page):
-    editor = EditorPage(home_page)
-    editor.editor_button.click()
-    editor.edit_button.wait_for(state='visible')
-    editor.edit_button.click()
-    editor.free_layout_button.wait_for(state='visible')
-    editor.free_layout_button.click()
-    home_page.locator('.react-grid-layout').wait_for(state='visible')
-    editor.edit_manage_button.click()
-    home_page.wait_for_load_state('networkidle')
-    return FreeLayoutPage(home_page)
-
-# 自由-文本
-@pytest.fixture
-def free_text_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('文本').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeTextPage(free_layout_page.page)
-
-# 自由-图表
-@pytest.fixture
-def free_chart_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('图表').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeChartPage(free_layout_page.page)
-
-# 自由-仪表盘
-@pytest.fixture
-def free_gauge_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('仪表盘').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeGaugePage(free_layout_page.page)
-
-# 自由-状态灯
-@pytest.fixture
-def free_status_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('状态灯').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeStatusPage(free_layout_page.page)
-
-# 自由-指示牌
-@pytest.fixture
-def free_indicator_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('指示牌').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeIndicatorPage(free_layout_page.page)
-
-# 自由-输入框
-@pytest.fixture
-def free_input_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('输入框').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeInputPage(free_layout_page.page)
-
-# 进入界面编辑器-栅格布局的编辑页
-@pytest.fixture
-def grid_layout_page(home_page):
-    editor = EditorPage(home_page)
-    editor.editor_button.click()
-    editor.edit_button.wait_for(state='visible')
-    editor.edit_button.click()
-    editor.grid_layout_button.wait_for(state='visible')
-    editor.grid_layout_button.click()
-    glp = GridLayoutPage(home_page)
-    glp.canvas.wait_for(state='visible')
-    return glp
-
-# 栅格-文本
-@pytest.fixture
-def grid_text_page(grid_layout_page):
-    grid_layout_page.drag_to_canvas('TextWidget')
-    gtp = GridTextPage(grid_layout_page.page)
-    gtp.click_widget()
-    gtp.prop_content.wait_for(state='visible')
-    return gtp
-
-# 栅格-图表
-@pytest.fixture
-def grid_chart_page(grid_layout_page):
-    grid_layout_page.drag_to_canvas('ChartWidget')
-    gcp = GridChartPage(grid_layout_page.page)
-    gcp.click_widget()  # 拖拽后自动选中，但点击一下确保右侧属性加载
-    gcp.prop_title.wait_for(state='visible')
-    return gcp
-
-# 栅格-仪表盘
-@pytest.fixture
-def grid_gauge_page(grid_layout_page):
-    grid_layout_page.drag_to_canvas('GaugeWidget')
-    ggp = GridGaugePage(grid_layout_page.page)
-    ggp.click_widget()
-    ggp.prop_title.wait_for(state='visible')
-    return ggp
-
-# 栅格-状态灯
-@pytest.fixture
-def grid_status_page(grid_layout_page):
-    grid_layout_page.drag_to_canvas('StatusIndicator')
-    gsp = GridStatusPage(grid_layout_page.page)
-    gsp.click_widget()
-    gsp.prop_label.wait_for(state='visible')
-    return gsp
-
-# 栅格-指示牌
-@pytest.fixture
-def grid_indicator_page(grid_layout_page):
-    grid_layout_page.drag_to_canvas('IndicatorCard')
-    gip = GridIndicatorPage(grid_layout_page.page)
-    gip.click_widget()
-    gip.prop_label.wait_for(state='visible')
-    return gip
-
-# 栅格-输入框
-@pytest.fixture
-def grid_input_page(grid_layout_page):
-    source = grid_layout_page.drawer_item('InputWidget')
-    source.scroll_into_view_if_needed()
-    grid_layout_page.drag_to_canvas('InputWidget')
-    gip = GridInputPage(grid_layout_page.page)
-    gip.click_widget()
-    gip.prop_label.wait_for(state='visible')
-    return gip

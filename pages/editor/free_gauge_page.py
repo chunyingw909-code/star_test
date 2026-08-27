@@ -5,7 +5,7 @@ class FreeGaugePage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
         # 属性面板
-        self.prop_panel = page.locator('.MuiBox-root', has_text='GaugeWidget').first
+        self.prop_panel = page.locator('.MuiBox-root', has_text='GaugeWidget').last
         # 核心字段
         self.prop_title = page.get_by_label('标题')
         self.prop_min = page.get_by_label('最小值')

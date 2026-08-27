@@ -4,7 +4,7 @@ from pages.editor.free_layout_page import FreeLayoutPage
 class FreeIndicatorPage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
-        self.prop_panel = page.locator('.MuiBox-root', has_text='IndicatorCard').first
+        self.prop_panel = page.locator('.MuiBox-root', has_text='IndicatorCard').last
         # 核心字段
         self.prop_label = page.get_by_label('标签')
         self.prop_value = page.get_by_label('数值')

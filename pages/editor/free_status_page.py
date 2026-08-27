@@ -4,7 +4,7 @@ from pages.editor.free_layout_page import FreeLayoutPage
 class FreeStatusPage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
-        self.prop_panel = page.locator('.MuiBox-root', has_text='StatusIndicator').first
+        self.prop_panel = page.locator('.MuiBox-root', has_text='StatusIndicator').last
         # 核心字段
         self.prop_label = page.get_by_label('标签')
         self.prop_status_text = page.get_by_label('状态文字')

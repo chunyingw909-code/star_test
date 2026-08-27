@@ -5,7 +5,7 @@ class FreeTextPage(FreeLayoutPage):
     def __init__(self, page):
         super().__init__(page)
         # 属性面板
-        self.prop_panel = page.locator('.MuiBox-root', has_text='TextWidget').first
+        self.prop_panel = page.locator('.MuiBox-root', has_text='TextWidget').last
         self.prop_content = page.get_by_label('内容')
         self.prop_font_size = page.get_by_label('字号')
         self.prop_color = page.get_by_label('颜色', exact=True)

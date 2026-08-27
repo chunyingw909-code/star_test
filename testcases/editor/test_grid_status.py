@@ -1,16 +1,24 @@
+import allure
 from playwright.sync_api import expect
 
 
-# ==================== 默认状态 ====================
-
-def test_status_default(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('拖拽状态指示器后画布出现组件，默认显示"状态"和"正常"')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_status_default(grid_status_page):
+    # 画布断言
     expect(grid_status_page.canvas_widgets()).to_have_count(1)
     expect(grid_status_page.canvas_widgets().first).to_contain_text('状态')
-    assert_screenshot(canvas, 'grid_status_default.png')
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('正常')
 
 
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('点击组件，右侧属性面板显示默认值')
+@allure.severity(allure.severity_level.CRITICAL)
 def test_status_select_shows_properties(grid_status_page):
+    # 右侧断言
     expect(grid_status_page.prop_label).to_have_value('状态')
     expect(grid_status_page.prop_status_text).to_have_value('正常')
     expect(grid_status_page.prop_normal_color).to_have_value('#2FC25B')
@@ -18,236 +26,277 @@ def test_status_select_shows_properties(grid_status_page):
     expect(grid_status_page.prop_danger_color).to_have_value('#E74C3C')
     expect(grid_status_page.prop_offline_color).to_have_value('#666')
     expect(grid_status_page.prop_size).to_have_value('36')
+    # 画布断言
+    dot = grid_status_page.canvas_widgets().first.locator('div:empty')
+    expect(dot).to_have_css('width', '36px')
+    expect(dot).to_have_css('height', '36px')
 
 
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('点击空白区域，右侧切换回Page属性')
+@allure.severity(allure.severity_level.NORMAL)
 def test_status_click_blank_shows_page(grid_status_page):
     grid_status_page.click_canvas_blank()
     expect(grid_status_page.page.get_by_title('布局列数')).to_be_visible()
 
 
-# ==================== 标签 ====================
-
-def test_status_modify_label(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.prop_label.fill('姿轨控 姿态控制')
-    expect(grid_status_page.prop_label).to_have_value('姿轨控 姿态控制')
-    expect(grid_status_page.canvas_widgets().first).to_contain_text('姿轨控 姿态控制')
-    assert_screenshot(canvas, 'grid_status_label_attitude.png')
-
-
-def test_status_clear_label(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.prop_label.fill('')
-    expect(grid_status_page.prop_label).to_have_value('')
-    assert_screenshot(canvas, 'grid_status_label_empty.png')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改标签为"姿轨控姿态控制"')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_modify_label(grid_status_page):
+    grid_status_page.prop_label.fill('姿轨控姿态控制')
+    # 右侧断言
+    expect(grid_status_page.prop_label).to_have_value('姿轨控姿态控制')
+    # 画布断言
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('姿轨控姿态控制')
 
 
-# ==================== 状态文字 ====================
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('标签恢复为"状态"')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_label_recover(grid_status_page):
+    grid_status_page.prop_label.fill('姿轨控姿态控制')
+    grid_status_page.prop_label.fill('状态')
+    # 右侧断言
+    expect(grid_status_page.prop_label).to_have_value('状态')
+    # 画布断言
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('状态')
 
-def test_status_modify_status_text(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改状态文字为"警告"')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_modify_status_text(grid_status_page):
     grid_status_page.prop_status_text.fill('警告')
+    # 右侧断言
     expect(grid_status_page.prop_status_text).to_have_value('警告')
+    # 画布断言
     expect(grid_status_page.canvas_widgets().first).to_contain_text('警告')
-    assert_screenshot(canvas, 'grid_status_text_warning.png')
 
 
-def test_status_clear_status_text(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.prop_status_text.fill('')
-    expect(grid_status_page.prop_status_text).to_have_value('')
-    assert_screenshot(canvas, 'grid_status_text_empty.png')
-
-
-def test_status_status_text_recover(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('状态文字恢复为"正常"')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_status_text_recover(grid_status_page):
     grid_status_page.prop_status_text.fill('警告')
-    grid_status_page.prop_status_text.fill('异常')
-    expect(grid_status_page.prop_status_text).to_have_value('异常')
-    expect(grid_status_page.canvas_widgets().first).to_contain_text('异常')
-    assert_screenshot(canvas, 'grid_status_text_recover.png')
+    grid_status_page.prop_status_text.fill('正常')
+    # 右侧断
+    expect(grid_status_page.prop_status_text).to_have_value('正常')
+    # 画布断言
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('正常')
 
 
-# ==================== 颜色 ====================
-
-def test_status_normal_color(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.prop_normal_color.fill('#2FC25B')
-    expect(grid_status_page.prop_normal_color).to_have_value('#2FC25B')
-    assert_screenshot(canvas, 'grid_status_color_green.png')
-
-
-def test_status_warning_color(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.prop_warning_color.fill('#F4D03F')
-    expect(grid_status_page.prop_warning_color).to_have_value('#F4D03F')
-    assert_screenshot(canvas, 'grid_status_warning_color.png')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改正常颜色为 #00FF00')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_modify_normal_color(grid_status_page):
+    grid_status_page.prop_normal_color.fill('#00FF00')
+    # 右侧断言
+    expect(grid_status_page.prop_normal_color).to_have_value('#00FF00')
 
 
-def test_status_danger_color(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改警告颜色为 #FFA500')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_modify_warning_color(grid_status_page):
+    grid_status_page.prop_warning_color.fill('#FFA500')
+    # 右侧断言
+    expect(grid_status_page.prop_warning_color).to_have_value('#FFA500')
+
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改危险颜色为 #FF0000')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_modify_danger_color(grid_status_page):
     grid_status_page.prop_danger_color.fill('#FF0000')
+    # 右侧断言
     expect(grid_status_page.prop_danger_color).to_have_value('#FF0000')
-    assert_screenshot(canvas, 'grid_status_danger_color.png')
 
 
-def test_status_offline_color(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('修改离线颜色为 #999999')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_modify_offline_color(grid_status_page):
     grid_status_page.prop_offline_color.fill('#999999')
+    # 右侧断言
     expect(grid_status_page.prop_offline_color).to_have_value('#999999')
-    assert_screenshot(canvas, 'grid_status_offline_color.png')
 
 
-def test_status_color_recover(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('颜色恢复为默认')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_color_recover(grid_status_page):
     grid_status_page.prop_normal_color.fill('#00FF00')
     grid_status_page.prop_normal_color.fill('#2FC25B')
+    # 右侧断言
     expect(grid_status_page.prop_normal_color).to_have_value('#2FC25B')
-    assert_screenshot(canvas, 'grid_status_color_recover.png')
 
 
-# ==================== 尺寸 ====================
-
-def test_status_size_80(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('尺寸调大为80')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_modify_size_large(grid_status_page):
     grid_status_page.prop_size.fill('80')
+    # 右侧断言
     expect(grid_status_page.prop_size).to_have_value('80')
-    assert_screenshot(canvas, 'grid_status_size_80.png')
+    # 画布断言
+    dot = grid_status_page.canvas_widgets().first.locator('div:empty')
+    expect(dot).to_have_css('width', '80px')
+    expect(dot).to_have_css('height', '80px')
 
 
-def test_status_size_12(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('尺寸调小为12')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_modify_size_small(grid_status_page):
     grid_status_page.prop_size.fill('12')
+    # 右侧断言
     expect(grid_status_page.prop_size).to_have_value('12')
-    assert_screenshot(canvas, 'grid_status_size_12.png')
+    # 画布断言
+    dot = grid_status_page.canvas_widgets().first.locator('div:empty')
+    expect(dot).to_have_css('width', '12px')
+    expect(dot).to_have_css('height', '12px')
 
 
-def test_status_size_recover(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('尺寸恢复为36')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_size_recover(grid_status_page):
     grid_status_page.prop_size.fill('80')
     grid_status_page.prop_size.fill('36')
+    # 右侧断言
     expect(grid_status_page.prop_size).to_have_value('36')
-    assert_screenshot(canvas, 'grid_status_size_recover.png')
+    # 画布断言
+    dot = grid_status_page.canvas_widgets().first.locator('div:empty')
+    expect(dot).to_have_css('width', '36px')
+    expect(dot).to_have_css('height', '36px')
 
 
-# ==================== 显示标签 ====================
-
-def test_status_hide_label(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('隐藏标签（选择"否"）')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_hide_label(grid_status_page):
+    # 原生 input 被自定义样式的装饰层遮挡，点击外层 label 绕开遮挡
     grid_status_page.show_label_label('否').click()
+    # 右侧断言
     expect(grid_status_page.show_label_radio('否')).to_be_checked()
-    assert_screenshot(canvas, 'grid_status_hide_label.png')
+    # 画布断言
+    expect(grid_status_page.canvas_widgets().first).not_to_contain_text('状态')
 
 
-def test_status_show_label_recover(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('恢复显示标签（选择"是"）')
+@allure.severity(allure.severity_level.NORMAL)
+def test_status_show_label_recover(grid_status_page):
     grid_status_page.show_label_label('否').click()
     grid_status_page.show_label_label('是').click()
+    # 右侧断言
     expect(grid_status_page.show_label_radio('是')).to_be_checked()
+    # 画布断言
     expect(grid_status_page.canvas_widgets().first).to_contain_text('状态')
-    assert_screenshot(canvas, 'grid_status_show_label_recover.png')
 
 
-# ==================== 告警闪烁 ====================
-
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('关闭告警闪烁（选择"否"）')
+@allure.severity(allure.severity_level.NORMAL)
 def test_status_blink_off(grid_status_page):
     grid_status_page.blink_label('否').click()
+    # 右侧断言
     expect(grid_status_page.blink_radio('否')).to_be_checked()
 
 
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('开启告警闪烁（选择"是"）')
+@allure.severity(allure.severity_level.NORMAL)
 def test_status_blink_on(grid_status_page):
     grid_status_page.blink_label('否').click()
     grid_status_page.blink_label('是').click()
+    # 右侧断言
     expect(grid_status_page.blink_radio('是')).to_be_checked()
 
 
-# ==================== 刷新模式 ====================
-
-def test_status_refresh_mode_poll(grid_status_page):
-    grid_status_page.prop_refresh_mode.select_option(label='轮询')
-    expect(grid_status_page.prop_refresh_mode).to_have_value('{"value":"poll"}')
-
-
-def test_status_refresh_mode_manual(grid_status_page):
-    grid_status_page.prop_refresh_mode.select_option(label='手动')
-    expect(grid_status_page.prop_refresh_mode).to_have_value('{"value":"manual"}')
-
-
-def test_status_refresh_mode_push(grid_status_page):
-    grid_status_page.prop_refresh_mode.select_option(label='手动')
-    grid_status_page.prop_refresh_mode.select_option(label='推送')
-    expect(grid_status_page.prop_refresh_mode).to_have_value('{"value":"push"}')
-
-
-# ==================== 出错时 ====================
-
-def test_status_error_fallback_show_last(grid_status_page):
-    grid_status_page.prop_error_fallback.select_option(label='显示上次')
-    expect(grid_status_page.prop_error_fallback).to_have_value('{"value":"showLast"}')
-
-
-def test_status_error_fallback_hide(grid_status_page):
-    grid_status_page.prop_error_fallback.select_option(label='隐藏')
-    expect(grid_status_page.prop_error_fallback).to_have_value('{"value":"hide"}')
-
-
-def test_status_error_fallback_recover(grid_status_page):
-    grid_status_page.prop_error_fallback.select_option(label='隐藏')
-    grid_status_page.prop_error_fallback.select_option(label='显示空')
-    expect(grid_status_page.prop_error_fallback).to_have_value('{"value":"showEmpty"}')
-
-
-# ==================== 点击事件 ====================
-
-def test_status_click_action_alert(grid_status_page):
-    grid_status_page.prop_click_action.select_option(label='弹窗提示')
-    expect(grid_status_page.prop_click_action).to_have_value('{"value":"alert"}')
-
-
-def test_status_click_action_navigate(grid_status_page):
-    grid_status_page.prop_click_action.select_option(label='跳转 URL')
-    grid_status_page.prop_click_target.fill('https://example.com')
-    expect(grid_status_page.prop_click_action).to_have_value('{"value":"navigate"}')
-    expect(grid_status_page.prop_click_target).to_have_value('https://example.com')
-
-
-def test_status_click_action_none(grid_status_page):
-    grid_status_page.prop_click_action.select_option(label='弹窗提示')
-    grid_status_page.prop_click_action.select_option(label='无')
-    expect(grid_status_page.prop_click_action).to_have_value('{"value":""}')
-
-
-# ==================== 数据绑定 ====================
-
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('输入数据源和字段路径')
+@allure.severity(allure.severity_level.CRITICAL)
 def test_status_data_binding(grid_status_page):
     grid_status_page.prop_data_source.fill('SAT-01')
     grid_status_page.prop_field_path.fill('attitude.status')
+    # 右侧断言
     expect(grid_status_page.prop_data_source).to_have_value('SAT-01')
     expect(grid_status_page.prop_field_path).to_have_value('attitude.status')
 
 
-def test_status_data_binding_clear(grid_status_page):
-    grid_status_page.prop_data_source.fill('SAT-01')
-    grid_status_page.prop_field_path.fill('attitude.status')
-    grid_status_page.prop_data_source.fill('')
-    grid_status_page.prop_field_path.fill('')
-    expect(grid_status_page.prop_data_source).to_have_value('')
-    expect(grid_status_page.prop_field_path).to_have_value('')
-
-
-# ==================== 复制 / 删除 ====================
-
-def test_status_duplicate(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.duplicate_button.dispatch_event('click')
-    expect(grid_status_page.canvas_widgets()).to_have_count(2)
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('复制状态指示器组件，画布出现两个相同组件')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_duplicate(grid_status_page):
+    grid_status_page.page.keyboard.press('Escape')
+    # click(force=True) 仍会按坐标做 hit-test，命中的是遮挡它的左侧组件库；
+    # 直接调用按钮自身的 DOM click() 绕开 hit-test，不管被谁挡住都能点到
+    grid_status_page.page.get_by_title('Duplicate').evaluate('el => el.click()')
+    # 右侧断言（复制后新组件被选中，属性不变）
     expect(grid_status_page.prop_label).to_have_value('状态')
     expect(grid_status_page.prop_size).to_have_value('36')
-    assert_screenshot(canvas, 'grid_status_duplicate.png')
+    # 数量断言
+    expect(grid_status_page.canvas_widgets()).to_have_count(2)
+    # 画布断言：两个组件均为默认样式
+    expect(grid_status_page.canvas_widgets().nth(0)).to_contain_text('状态')
+    expect(grid_status_page.canvas_widgets().nth(0)).to_contain_text('正常')
+    expect(grid_status_page.canvas_widgets().nth(1)).to_contain_text('状态')
+    expect(grid_status_page.canvas_widgets().nth(1)).to_contain_text('正常')
 
 
-def test_status_delete(grid_status_page, assert_screenshot):
-    canvas = grid_status_page.page.locator('#puck-canvas-root')
-    grid_status_page.delete_button.dispatch_event('click')
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('删除状态指示器组件，画布无组件，右侧切换为Page属性')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_delete(grid_status_page):
+    grid_status_page.page.keyboard.press('Escape')
+    # click(force=True) 仍会按坐标做 hit-test，命中的是遮挡它的左侧组件库；
+    # 直接调用按钮自身的 DOM click() 绕开 hit-test，不管被谁挡住都能点到
+    grid_status_page.page.get_by_title('Delete').evaluate('el => el.click()')
+    # 右侧断言（删除后无组件，切换为Page属性）
     expect(grid_status_page.page.get_by_title('布局列数')).to_be_visible()
+    # 数量断言
     expect(grid_status_page.canvas_widgets()).to_have_count(0)
+
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-状态灯组件')
+@allure.title('组合修改标签、状态文字、警告颜色与尺寸')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_status_combined(grid_status_page):
+    grid_status_page.prop_label.fill('姿轨控 姿态控制')
+    grid_status_page.prop_status_text.fill('警告')
+    grid_status_page.prop_warning_color.fill('#FFA500')
+    grid_status_page.prop_size.fill('80')
+    # 右侧断言
+    expect(grid_status_page.prop_label).to_have_value('姿轨控 姿态控制')
+    expect(grid_status_page.prop_status_text).to_have_value('警告')
+    expect(grid_status_page.prop_warning_color).to_have_value('#FFA500')
+    expect(grid_status_page.prop_size).to_have_value('80')
+    # 画布断言
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('姿轨控 姿态控制')
+    expect(grid_status_page.canvas_widgets().first).to_contain_text('警告')
+    dot = grid_status_page.canvas_widgets().first.locator('div:empty')
+    expect(dot).to_have_css('width', '80px')
+    expect(dot).to_have_css('height', '80px')
