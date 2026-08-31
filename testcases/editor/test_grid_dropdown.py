@@ -31,7 +31,7 @@ def test_dropdown_select_shows_properties(grid_dropdown_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_dropdown_click_blank_shows_page(grid_dropdown_page):
     grid_dropdown_page.click_canvas_blank()
-    expect(grid_dropdown_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_dropdown_page.page_props_marker).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -123,7 +123,7 @@ def test_dropdown_data_binding_clear(grid_dropdown_page):
 @allure.title('复制下拉框组件，画布出现两个相同组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_dropdown_duplicate(grid_dropdown_page):
-    grid_dropdown_page.duplicate_button.dispatch_event('click')
+    grid_dropdown_page.duplicate_widget()
     # 右侧断言（复制后新组件被选中，属性不变）
     expect(grid_dropdown_page.prop_label).to_have_value('下拉框')
     expect(grid_dropdown_page.prop_options).to_have_value('选项一, 选项二, 选项三')
@@ -139,9 +139,9 @@ def test_dropdown_duplicate(grid_dropdown_page):
 @allure.title('删除下拉框组件，画布无组件，右侧切换为Page属性')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_dropdown_delete(grid_dropdown_page):
-    grid_dropdown_page.delete_button.dispatch_event('click')
+    grid_dropdown_page.delete_widget()
     # 右侧断言（删除后无组件，切换为Page属性）
-    expect(grid_dropdown_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_dropdown_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_dropdown_page.canvas_widgets()).to_have_count(0)
 
@@ -158,3 +158,32 @@ def test_dropdown_combined(grid_dropdown_page):
     expect(grid_dropdown_page.prop_options).to_have_value('选项A, 选项B')
     # 画布断言
     expect(grid_dropdown_page.widget_label_text()).to_have_text('国家选择')
+
+
+# ==================== 默认值：预览态验证 ====================
+# 编辑态画布下拉框不体现默认值，预览态挂载后默认选中项才出现。
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-下拉框组件')
+@allure.title('设默认值后编辑态画布不选中、预览态下拉框默认选中该项')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_dropdown_default_value_in_preview(grid_dropdown_page):
+    from pages.editor.editor_page import EditorPage
+    grid_dropdown_page.prop_options.fill('选项一, 选项二, 选项三')
+    grid_dropdown_page.prop_default_value.fill('选项二')
+    expect(grid_dropdown_page.prop_default_value).to_have_value('选项二')
+    expect(grid_dropdown_page.widget_select()).not_to_contain_text('选项二')
+    EditorPage(grid_dropdown_page.page).enter_preview()
+    expect(grid_dropdown_page.preview_select()).to_have_text('选项二')
+
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-下拉框组件')
+@allure.title('默认值不在选项列表里时，预览态不选中任何项')
+@allure.severity(allure.severity_level.NORMAL)
+def test_dropdown_default_value_not_in_options(grid_dropdown_page):
+    from pages.editor.editor_page import EditorPage
+    grid_dropdown_page.prop_options.fill('选项一, 选项二')
+    grid_dropdown_page.prop_default_value.fill('不存在的项')
+    EditorPage(grid_dropdown_page.page).enter_preview()
+    expect(grid_dropdown_page.preview_select()).not_to_contain_text('不存在的项')

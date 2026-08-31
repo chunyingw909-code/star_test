@@ -2,24 +2,47 @@ from pages.editor.grid_layout_page import GridLayoutPage
 
 
 class GridChartPage(GridLayoutPage):
+    # 图表类型 / 主题 / 图例位置 原生 <select> 的 {选项文案: value}
+    CHART_TYPES = {'折线': '{"value":"line"}', '柱状': '{"value":"bar"}', '饼图': '{"value":"pie"}'}
+    THEMES = {'深色': '{"value":"dark"}', '浅色': '{"value":"light"}'}
+    LEGEND_POSITIONS = {'底部': '{"value":"bottom"}', '顶部': '{"value":"top"}', '左侧': '{"value":"left"}'}
+    # 交互事件下拉：{字段 title: {选项文案: value}}
+    EVENT_SELECTS = {
+        '点击事件': {
+            '无': '{"value":""}', '弹窗提示': '{"value":"alert"}', '跳转 URL': '{"value":"navigate"}',
+            '刷新数据': '{"value":"refresh"}', '显示弹窗': '{"value":"modal"}', '组件联动': '{"value":"linkage"}',
+        },
+        '双击事件': {'无': '{"value":""}', '弹窗提示': '{"value":"alert"}', '跳转 URL': '{"value":"navigate"}'},
+        '阈值触发': {'无': '{"value":""}', '弹窗提示': '{"value":"alert"}', '刷新数据': '{"value":"refresh"}'},
+        '悬停事件': {'无': '{"value":""}', '弹窗提示': '{"value":"alert"}'},
+        '输入变化': {'无': '{"value":""}', '刷新数据': '{"value":"refresh"}'},
+        '定时触发': {'无': '{"value":""}', '刷新数据': '{"value":"refresh"}'},
+    }
+
     def __init__(self, page):
         super().__init__(page)
-        # 输入框
+        self.prop_heading = page.get_by_role('heading', name='图表', exact=True)
+        # 输入框（grid 用 title 定位）
         self.prop_title = page.get_by_title('标题')
-        self.prop_chart_type = page.get_by_title('图表类型')
-        self.prop_data_source = page.get_by_title('卫星 ID')
-        self.prop_x_field = page.get_by_title('X 轴字段')
-        self.prop_y_fields = page.get_by_title('Y 轴字段 (逗号分隔)')
-        self.prop_series_names = page.get_by_title('系列名称 (逗号分隔)')
-        self.prop_series_colors = page.get_by_title('系列颜色 (逗号分隔)')
-        # 主题用 get_by_label 避免和主题切换按钮冲突
-        self.prop_theme = page.get_by_label('主题')
-        self.prop_legend_position = page.get_by_title('图例位置')
         self.prop_warning_line = page.get_by_title('警告线')
         self.prop_danger_line = page.get_by_title('危险线')
         self.prop_line_width = page.get_by_title('线宽')
         self.prop_fill_opacity = page.get_by_title('填充透明度')
-        self.prop_max_points = page.get_by_title('最大点数')
+        # 原生 <select>
+        self.prop_chart_type = page.get_by_title('图表类型')
+        self.prop_legend_position = page.get_by_title('图例位置')
+        # 主题用 select[title] 精确定位，避开工具栏的「主题切换」按钮
+        self.prop_theme = page.locator('select[title="主题"]')
+        # 数据绑定按钮 + 对话框
+        self.bind_button = page.get_by_role('button', name='配置数据绑定')
+        self.bind_dialog = page.get_by_role('dialog')
+        self.bind_dialog_save = self.bind_dialog.get_by_role('button', name='保存绑定')
+        # 交互事件里的「点击目标 (URL 或消息)」输入框
+        self.prop_click_target = page.get_by_title('点击目标 (URL 或消息)')
+
+    # 交互事件下拉（原生 select）
+    def event_select(self, title):
+        return self.page.get_by_title(title)
 
     # ----- 图例 -----
     def legend_radio(self, value):
@@ -44,3 +67,15 @@ class GridChartPage(GridLayoutPage):
 
     def zoom_label(self, value):
         return self.zoom_radio(value).locator('xpath=..')
+
+    # 画布上图表的 echarts canvas
+    def widget_canvas(self, index=0):
+        return self.canvas_widgets().nth(index).locator('canvas')
+
+    def open_bind_dialog(self):
+        self.bind_button.click()
+        self.bind_dialog.wait_for(state='visible')
+
+    def close_bind_dialog(self):
+        self.bind_dialog.get_by_role('button', name='取消').click()
+        self.bind_dialog.wait_for(state='hidden')

@@ -37,7 +37,7 @@ def test_text_select_shows_properties(grid_text_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_text_click_blank_shows_page(grid_text_page):
     grid_text_page.click_canvas_blank()
-    expect(grid_text_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_text_page.page_props_marker).to_be_visible()
 
 
 # ==================== 内容修改 ====================
@@ -293,7 +293,7 @@ def test_text_binding_mode_dynamic(grid_text_page):
 @allure.title('复制文本组件，画布出现两个相同组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_text_duplicate(grid_text_page):
-    grid_text_page.duplicate_button.click()
+    grid_text_page.duplicate_widget()
     # 右侧断言（复制后新组件被选中，属性不变）
     expect(grid_text_page.prop_content).to_have_value('标题')
     expect(grid_text_page.prop_font_size).to_have_value('24')
@@ -318,9 +318,9 @@ def test_text_duplicate(grid_text_page):
 @allure.title('删除文本组件，画布无组件，右侧切换为Page属性')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_text_delete(grid_text_page):
-    grid_text_page.delete_button.click()
+    grid_text_page.delete_widget()
     # 右侧断言（删除后无组件，切换为Page属性）
-    expect(grid_text_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_text_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_text_page.canvas_widgets()).to_have_count(0)
 

@@ -33,7 +33,7 @@ def test_indicator_select_shows_properties(grid_indicator_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_indicator_click_blank_shows_page(grid_indicator_page):
     grid_indicator_page.click_canvas_blank()
-    expect(grid_indicator_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_indicator_page.page_props_marker).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -311,7 +311,7 @@ def test_indicator_data_binding_clear(grid_indicator_page):
 @allure.title('复制指示牌组件，画布出现两个相同组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_indicator_duplicate(grid_indicator_page):
-    grid_indicator_page.duplicate_button.dispatch_event('click')
+    grid_indicator_page.duplicate_widget()
     # 右侧断言（复制后新组件被选中，属性不变）
     expect(grid_indicator_page.prop_label).to_have_value('CPU 使用率')
     expect(grid_indicator_page.prop_unit).to_have_value('%')
@@ -324,9 +324,9 @@ def test_indicator_duplicate(grid_indicator_page):
 @allure.title('删除指示牌组件，画布无组件，右侧切换为Page属性')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_indicator_delete(grid_indicator_page):
-    grid_indicator_page.delete_button.dispatch_event('click')
+    grid_indicator_page.delete_widget()
     # 右侧断言（删除后无组件，切换为Page属性）
-    expect(grid_indicator_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_indicator_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_indicator_page.canvas_widgets()).to_have_count(0)
 

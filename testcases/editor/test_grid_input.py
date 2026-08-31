@@ -39,7 +39,7 @@ def test_input_select_shows_properties(grid_input_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_input_click_blank_shows_page(grid_input_page):
     grid_input_page.click_canvas_blank()
-    expect(grid_input_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_input_page.page_props_marker).to_be_visible()
 
 
 # ==================== 跨列数 ====================
@@ -278,7 +278,7 @@ def test_input_data_binding_clear(grid_input_page):
 @allure.title('复制输入框组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_input_duplicate(grid_input_page):
-    grid_input_page.duplicate_button.dispatch_event('click')
+    grid_input_page.duplicate_widget()
     # 数量断言
     expect(grid_input_page.canvas_widgets()).to_have_count(2)
     # 右侧断言
@@ -294,9 +294,9 @@ def test_input_duplicate(grid_input_page):
 @allure.title('删除输入框组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_input_delete(grid_input_page):
-    grid_input_page.delete_button.dispatch_event('click')
+    grid_input_page.delete_widget()
     # 右侧断言
-    expect(grid_input_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_input_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_input_page.canvas_widgets()).to_have_count(0)
 
@@ -326,3 +326,32 @@ def test_input_combined(grid_input_page):
     expect(grid_input_page.widget_textarea()).to_have_attribute('rows', '3')
     expect(grid_input_page.widget_textarea()).to_have_attribute('placeholder', '请输入备注信息')
     expect(grid_input_page.canvas_widgets().first).to_have_css('grid-column', 'span 4')
+
+
+# ==================== 默认值：预览态验证 ====================
+# 编辑态画布上的输入框只是「设计态占位」，改默认值不会立即体现；
+# 切到预览态后组件真正挂载，默认值会填进渲染出来的输入框。
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-输入框组件')
+@allure.title('设默认值后编辑态画布不变、预览态输入框带出默认值')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_input_default_value_in_preview(grid_input_page):
+    from pages.editor.editor_page import EditorPage
+    grid_input_page.prop_default_value.fill('SAT-01')
+    expect(grid_input_page.prop_default_value).to_have_value('SAT-01')
+    expect(grid_input_page.widget_input()).to_have_value('')
+    EditorPage(grid_input_page.page).enter_preview()
+    expect(grid_input_page.preview_input()).to_have_value('SAT-01')
+
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-输入框组件')
+@allure.title('多行模式下默认值在预览态填进文本域')
+@allure.severity(allure.severity_level.NORMAL)
+def test_input_default_value_multiline_in_preview(grid_input_page):
+    from pages.editor.editor_page import EditorPage
+    grid_input_page.multiline_label('是').click()
+    grid_input_page.prop_default_value.fill('第一行内容')
+    EditorPage(grid_input_page.page).enter_preview()
+    expect(grid_input_page.preview_textarea()).to_have_value('第一行内容')

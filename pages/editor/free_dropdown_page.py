@@ -18,3 +18,13 @@ class FreeDropdownPage(FreeLayoutPage):
     # 画布上的下拉框（MUI Select combobox）
     def widget_select(self, index=0):
         return self.canvas_widgets().nth(index).locator('[role="combobox"]')
+
+    # 预览态下真正渲染出来的下拉框。预览态没有别的 combobox，直接取唯一那个。
+    def preview_select(self):
+        return self.page.get_by_role('combobox')
+
+    # 预览态下拉框背后的隐藏 input（MUI Select 会同步一个 value）
+    def preview_select_value_input(self):
+        return self.page.locator(
+            'xpath=//input[not(ancestor::*[@data-testid="dashboard-toolbar"]) and @type="text"]'
+        )

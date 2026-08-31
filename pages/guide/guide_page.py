@@ -20,7 +20,9 @@ class GuidePage:
 
     def complete(self):
         try:
-            self.dialog.wait_for(state='visible', timeout=5000)
+            # 10s：首屏慢时别误判成"向导没出现"而直接跳过（跳过会导致向导弹窗
+            # 挡住后续操作）。向导没出现是正常情况（之前已配置），超时静默跳过。
+            self.dialog.wait_for(state='visible', timeout=10000)
             self.next_button.click()
             self.next_button.wait_for(state='visible')  # 等第二步渲染
             self.next_button.click()

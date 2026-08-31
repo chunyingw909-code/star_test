@@ -1,14 +1,18 @@
 import allure
+import pytest
 from playwright.sync_api import expect
 
 
+# ==================== 默认状态 ====================
+
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('拖拽图表后画布出现组件')
+@allure.title('拖拽图表后画布出现组件，渲染 echarts 画布')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_chart_default(grid_chart_page):
-    # 画布断言
     expect(grid_chart_page.canvas_widgets()).to_have_count(1)
+    expect(grid_chart_page.canvas_widgets().first).to_contain_text('真实数据图表')
+    expect(grid_chart_page.widget_canvas()).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -17,11 +21,17 @@ def test_chart_default(grid_chart_page):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_select_shows_properties(grid_chart_page):
     grid_chart_page.click_widget()
-    # 右侧断言
-    expect(grid_chart_page.prop_title).to_have_value('遥测图表')
-    expect(grid_chart_page.prop_x_field).to_have_value('time')
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage,current')
-    expect(grid_chart_page.prop_series_names).to_have_value('母线电压,母线电流')
+    expect(grid_chart_page.prop_title).to_have_value('真实数据图表')
+    expect(grid_chart_page.prop_chart_type).to_have_value('{"value":"line"}')
+    expect(grid_chart_page.prop_theme).to_have_value('{"value":"dark"}')
+    expect(grid_chart_page.prop_legend_position).to_have_value('{"value":"bottom"}')
+    expect(grid_chart_page.prop_warning_line).to_have_value('0')
+    expect(grid_chart_page.prop_danger_line).to_have_value('0')
+    expect(grid_chart_page.prop_line_width).to_have_value('1.5')
+    expect(grid_chart_page.prop_fill_opacity).to_have_value('0')
+    expect(grid_chart_page.legend_radio('是')).to_be_checked()
+    expect(grid_chart_page.tooltip_radio('是')).to_be_checked()
+    expect(grid_chart_page.zoom_radio('否')).to_be_checked()
 
 
 @allure.feature('界面编辑器')
@@ -31,8 +41,20 @@ def test_chart_select_shows_properties(grid_chart_page):
 def test_chart_click_blank_shows_page(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.click_canvas_blank()
-    expect(grid_chart_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_chart_page.page_props_marker).to_be_visible()
 
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-图表组件')
+@allure.title('交互事件下拉默认全部为"无"')
+@allure.severity(allure.severity_level.NORMAL)
+def test_chart_event_selects_default(grid_chart_page):
+    grid_chart_page.click_widget()
+    for title in grid_chart_page.EVENT_SELECTS:
+        expect(grid_chart_page.event_select(title)).to_have_value('{"value":""}')
+
+
+# ==================== 标题 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
@@ -41,209 +63,148 @@ def test_chart_click_blank_shows_page(grid_chart_page):
 def test_chart_modify_title(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.prop_title.fill('母线电压趋势')
-    # 右侧断言
     expect(grid_chart_page.prop_title).to_have_value('母线电压趋势')
+    expect(grid_chart_page.canvas_widgets().first).to_contain_text('母线电压趋势')
 
+
+# ==================== 图表类型 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('切换图表类型为柱状图')
+@allure.title('切换图表类型')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_type_bar(grid_chart_page):
+@pytest.mark.parametrize('name', ['柱状', '饼图', '折线'])
+def test_chart_type(grid_chart_page, name):
     grid_chart_page.click_widget()
-    grid_chart_page.prop_chart_type.select_option(label='柱状')
-    # 右侧断言
-    expect(grid_chart_page.prop_chart_type).to_have_value('{"value":"bar"}')
+    grid_chart_page.prop_chart_type.select_option(label=name)
+    expect(grid_chart_page.prop_chart_type).to_have_value(grid_chart_page.CHART_TYPES[name])
 
+
+# ==================== 主题 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('切换图表类型为饼图')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_type_pie(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_chart_type.select_option(label='饼图')
-    # 右侧断言
-    expect(grid_chart_page.prop_chart_type).to_have_value('{"value":"pie"}')
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('切换图表类型回折线图')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_type_line(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_chart_type.select_option(label='折线')
-    # 右侧断言
-    expect(grid_chart_page.prop_chart_type).to_have_value('{"value":"line"}')
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('隐藏图例（选择"否"）')
+@allure.title('切换主题为浅色，再切回深色')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_hide_legend(grid_chart_page):
+def test_chart_theme_toggle(grid_chart_page):
+    grid_chart_page.click_widget()
+    grid_chart_page.prop_theme.select_option(label='浅色')
+    expect(grid_chart_page.prop_theme).to_have_value('{"value":"light"}')
+    grid_chart_page.prop_theme.select_option(label='深色')
+    expect(grid_chart_page.prop_theme).to_have_value('{"value":"dark"}')
+
+
+# ==================== 图例位置 ====================
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-图表组件')
+@allure.title('切换图例位置')
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.parametrize('name', ['顶部', '左侧', '底部'])
+def test_chart_legend_position(grid_chart_page, name):
+    grid_chart_page.click_widget()
+    grid_chart_page.prop_legend_position.select_option(label=name)
+    expect(grid_chart_page.prop_legend_position).to_have_value(grid_chart_page.LEGEND_POSITIONS[name])
+
+
+# ==================== 图例 / 提示 / 缩放 ====================
+
+@allure.feature('界面编辑器')
+@allure.story('栅格布局-图表组件')
+@allure.title('隐藏图例再恢复')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_chart_legend_toggle(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.legend_label('否').click()
-    # 右侧断言
     expect(grid_chart_page.legend_radio('否')).to_be_checked()
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('恢复显示图例（选择"是"）')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_show_legend(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.legend_label('否').click()
     grid_chart_page.legend_label('是').click()
-    # 右侧断言
     expect(grid_chart_page.legend_radio('是')).to_be_checked()
 
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('隐藏提示（选择"否"）')
+@allure.title('隐藏提示再恢复')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_hide_tooltip(grid_chart_page):
+def test_chart_tooltip_toggle(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.tooltip_label('否').click()
-    # 右侧断言
     expect(grid_chart_page.tooltip_radio('否')).to_be_checked()
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('恢复显示提示（选择"是"）')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_show_tooltip(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.tooltip_label('否').click()
     grid_chart_page.tooltip_label('是').click()
-    # 右侧断言
     expect(grid_chart_page.tooltip_radio('是')).to_be_checked()
 
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('开启数据缩放（选择"是"）')
+@allure.title('开启数据缩放再关闭')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_enable_zoom(grid_chart_page):
+def test_chart_zoom_toggle(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.zoom_label('是').click()
-    # 右侧断言
     expect(grid_chart_page.zoom_radio('是')).to_be_checked()
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('关闭数据缩放（选择"否"）')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_disable_zoom(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.zoom_label('是').click()
     grid_chart_page.zoom_label('否').click()
-    # 右侧断言
     expect(grid_chart_page.zoom_radio('否')).to_be_checked()
 
 
+# ==================== 数值项 ====================
+
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('修改系列名称为"供电电压,供电电流"')
+@allure.title('修改警告线 / 危险线 / 线宽 / 填充透明度')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_modify_series_name(grid_chart_page):
+@pytest.mark.parametrize('attr, value', [
+    ('prop_warning_line', '80'),
+    ('prop_danger_line', '95'),
+    ('prop_line_width', '3'),
+    ('prop_fill_opacity', '0.4'),
+])
+def test_chart_numeric_props(grid_chart_page, attr, value):
     grid_chart_page.click_widget()
-    grid_chart_page.prop_series_names.fill('供电电压,供电电流')
-    # 右侧断言
-    expect(grid_chart_page.prop_series_names).to_have_value('供电电压,供电电流')
+    field = getattr(grid_chart_page, attr)
+    field.fill(value)
+    expect(field).to_have_value(value)
 
+
+# ==================== 交互事件 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('修改X轴字段为"timestamp"')
+@allure.title('设置点击事件为"弹窗提示"，并填写点击目标')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_modify_x_field(grid_chart_page):
+def test_chart_click_event_alert(grid_chart_page):
     grid_chart_page.click_widget()
-    grid_chart_page.prop_x_field.fill('timestamp')
-    # 右侧断言
-    expect(grid_chart_page.prop_x_field).to_have_value('timestamp')
+    grid_chart_page.event_select('点击事件').select_option(label='弹窗提示')
+    expect(grid_chart_page.event_select('点击事件')).to_have_value('{"value":"alert"}')
+    target = grid_chart_page.prop_click_target
+    target.fill('阈值超限')
+    expect(target).to_have_value('阈值超限')
 
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('X轴字段恢复为"time"')
+@allure.title('设置定时触发为"刷新数据"')
 @allure.severity(allure.severity_level.NORMAL)
-def test_chart_x_field_recover(grid_chart_page):
+def test_chart_timer_event_refresh(grid_chart_page):
     grid_chart_page.click_widget()
-    grid_chart_page.prop_x_field.fill('timestamp')
-    grid_chart_page.prop_x_field.fill('time')
-    # 右侧断言
-    expect(grid_chart_page.prop_x_field).to_have_value('time')
+    grid_chart_page.event_select('定时触发').select_option(label='刷新数据')
+    expect(grid_chart_page.event_select('定时触发')).to_have_value('{"value":"refresh"}')
 
+
+# ==================== 数据绑定对话框 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('Y轴字段扩展为3个"voltage,current,a"，系列名称同步扩展')
+@allure.title('点击"配置数据绑定"打开对话框，取消关闭')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_modify_y_fields_three(grid_chart_page):
+def test_chart_bind_dialog_open_cancel(grid_chart_page):
     grid_chart_page.click_widget()
-    grid_chart_page.prop_y_fields.fill('voltage,current,a')
-    grid_chart_page.prop_series_names.fill('母线电压,母线电流,a')
-    # 右侧断言
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage,current,a')
-    expect(grid_chart_page.prop_series_names).to_have_value('母线电压,母线电流,a')
+    grid_chart_page.open_bind_dialog()
+    expect(grid_chart_page.bind_dialog).to_contain_text('配置图表真实数据')
+    expect(grid_chart_page.bind_dialog_save).to_be_visible()
+    grid_chart_page.close_bind_dialog()
+    expect(grid_chart_page.bind_dialog).to_have_count(0)
 
 
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('Y轴字段与系列名称恢复为2个')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_y_fields_recover(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_y_fields.fill('voltage,current,a')
-    grid_chart_page.prop_series_names.fill('母线电压,母线电流,a')
-    grid_chart_page.prop_y_fields.fill('voltage,current')
-    grid_chart_page.prop_series_names.fill('母线电压,母线电流')
-    # 右侧断言
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage,current')
-    expect(grid_chart_page.prop_series_names).to_have_value('母线电压,母线电流')
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('切换主题为浅色')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_chart_theme_light(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_theme.select_option(label='浅色')
-    # 右侧断言
-    expect(grid_chart_page.prop_theme).to_have_value('{"value":"light"}')
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('切换主题为深色（恢复）')
-@allure.severity(allure.severity_level.NORMAL)
-def test_chart_theme_dark(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_theme.select_option(label='浅色')
-    grid_chart_page.prop_theme.select_option(label='深色')
-    # 右侧断言
-    expect(grid_chart_page.prop_theme).to_have_value('{"value":"dark"}')
-
-
-@allure.feature('界面编辑器')
-@allure.story('栅格布局-图表组件')
-@allure.title('输入卫星标识和Y轴字段')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_chart_satellite_data(grid_chart_page):
-    grid_chart_page.click_widget()
-    grid_chart_page.prop_data_source.fill('SAT-01')
-    grid_chart_page.prop_y_fields.fill('voltage')
-    # 右侧断言
-    expect(grid_chart_page.prop_data_source).to_have_value('SAT-01')
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage')
-
+# ==================== 复制 / 删除 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
@@ -251,12 +212,8 @@ def test_chart_satellite_data(grid_chart_page):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_duplicate(grid_chart_page):
     grid_chart_page.click_widget()
-    grid_chart_page.duplicate_button.dispatch_event('click')
-    # 右侧断言（复制后新组件被选中，属性不变）
-    expect(grid_chart_page.prop_title).to_have_value('遥测图表')
-    expect(grid_chart_page.prop_x_field).to_have_value('time')
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage,current')
-    # 数量断言
+    grid_chart_page.duplicate_widget()
+    expect(grid_chart_page.prop_title).to_have_value('真实数据图表')
     expect(grid_chart_page.canvas_widgets()).to_have_count(2)
 
 
@@ -265,25 +222,25 @@ def test_chart_duplicate(grid_chart_page):
 @allure.title('删除图表组件，画布无组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_delete(grid_chart_page):
-    # 画布断言
     expect(grid_chart_page.canvas_widgets()).to_have_count(1)
-    grid_chart_page.delete_button.click()
-    # 数量断言
+    grid_chart_page.delete_widget()
     expect(grid_chart_page.canvas_widgets()).to_have_count(0)
 
 
+# ==================== 组合修改 ====================
+
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-图表组件')
-@allure.title('组合修改标题、图表类型与Y轴字段')
+@allure.title('组合修改标题、图表类型、主题与警告线')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_combined(grid_chart_page):
     grid_chart_page.click_widget()
     grid_chart_page.prop_title.fill('母线电压趋势')
     grid_chart_page.prop_chart_type.select_option(label='柱状')
-    grid_chart_page.prop_y_fields.fill('voltage,current,a')
-    grid_chart_page.prop_series_names.fill('母线电压,母线电流,a')
-    # 右侧断言
+    grid_chart_page.prop_theme.select_option(label='浅色')
+    grid_chart_page.prop_warning_line.fill('80')
     expect(grid_chart_page.prop_title).to_have_value('母线电压趋势')
     expect(grid_chart_page.prop_chart_type).to_have_value('{"value":"bar"}')
-    expect(grid_chart_page.prop_y_fields).to_have_value('voltage,current,a')
-    expect(grid_chart_page.prop_series_names).to_have_value('母线电压,母线电流,a')
+    expect(grid_chart_page.prop_theme).to_have_value('{"value":"light"}')
+    expect(grid_chart_page.prop_warning_line).to_have_value('80')
+    expect(grid_chart_page.canvas_widgets().first).to_contain_text('母线电压趋势')

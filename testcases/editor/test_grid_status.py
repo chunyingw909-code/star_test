@@ -38,7 +38,7 @@ def test_status_select_shows_properties(grid_status_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_status_click_blank_shows_page(grid_status_page):
     grid_status_page.click_canvas_blank()
-    expect(grid_status_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_status_page.page_props_marker).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -249,10 +249,7 @@ def test_status_data_binding(grid_status_page):
 @allure.title('复制状态指示器组件，画布出现两个相同组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_status_duplicate(grid_status_page):
-    grid_status_page.page.keyboard.press('Escape')
-    # click(force=True) 仍会按坐标做 hit-test，命中的是遮挡它的左侧组件库；
-    # 直接调用按钮自身的 DOM click() 绕开 hit-test，不管被谁挡住都能点到
-    grid_status_page.page.get_by_title('Duplicate').evaluate('el => el.click()')
+    grid_status_page.duplicate_widget()
     # 右侧断言（复制后新组件被选中，属性不变）
     expect(grid_status_page.prop_label).to_have_value('状态')
     expect(grid_status_page.prop_size).to_have_value('36')
@@ -270,12 +267,9 @@ def test_status_duplicate(grid_status_page):
 @allure.title('删除状态指示器组件，画布无组件，右侧切换为Page属性')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_status_delete(grid_status_page):
-    grid_status_page.page.keyboard.press('Escape')
-    # click(force=True) 仍会按坐标做 hit-test，命中的是遮挡它的左侧组件库；
-    # 直接调用按钮自身的 DOM click() 绕开 hit-test，不管被谁挡住都能点到
-    grid_status_page.page.get_by_title('Delete').evaluate('el => el.click()')
+    grid_status_page.delete_widget()
     # 右侧断言（删除后无组件，切换为Page属性）
-    expect(grid_status_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_status_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_status_page.canvas_widgets()).to_have_count(0)
 

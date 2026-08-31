@@ -37,7 +37,7 @@ def test_gauge_select_shows_properties(grid_gauge_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_gauge_click_blank_shows_page(grid_gauge_page):
     grid_gauge_page.click_canvas_blank()
-    expect(grid_gauge_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_gauge_page.page_props_marker).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -289,7 +289,7 @@ def test_gauge_data_binding_clear(grid_gauge_page):
 @allure.title('复制仪表盘组件，画布出现两个相同组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_gauge_duplicate(grid_gauge_page):
-    grid_gauge_page.duplicate_button.dispatch_event('click')
+    grid_gauge_page.duplicate_widget()
     # 数量断言
     expect(grid_gauge_page.canvas_widgets()).to_have_count(2)
     # 右侧断言（复制后新组件被选中，属性不变）
@@ -308,9 +308,9 @@ def test_gauge_duplicate(grid_gauge_page):
 @allure.title('删除仪表盘组件，画布无组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_gauge_delete(grid_gauge_page):
-    grid_gauge_page.delete_button.dispatch_event('click')
+    grid_gauge_page.delete_widget()
     # 右侧断言（删除后切回Page属性）
-    expect(grid_gauge_page.page.get_by_title('布局列数')).to_be_visible()
+    expect(grid_gauge_page.page_props_marker).to_be_visible()
     # 数量断言
     expect(grid_gauge_page.canvas_widgets()).to_have_count(0)
 

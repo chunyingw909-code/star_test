@@ -32,3 +32,17 @@ class GridInputPage(GridLayoutPage):
     # 画布上的文本域（多行模式）
     def widget_textarea(self, index=0):
         return self.canvas_widgets().nth(index).locator('textarea:not([aria-hidden="true"])')
+
+    # 预览态下真正渲染出来的输入框（排除顶部工具栏里的输入框）。
+    # 默认值只在预览/运行时生效，要断言默认值就得进预览后看这个控件。
+    def preview_input(self):
+        return self.page.locator(
+            'xpath=//input[not(ancestor::*[@data-testid="dashboard-toolbar"]) '
+            'and (@type="text" or not(@type))]'
+        )
+
+    def preview_textarea(self):
+        return self.page.locator(
+            'xpath=//textarea[not(ancestor::*[@data-testid="dashboard-toolbar"]) '
+            'and not(@aria-hidden="true")]'
+        )
