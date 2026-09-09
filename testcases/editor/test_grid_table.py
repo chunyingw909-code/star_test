@@ -16,7 +16,10 @@ def test_table_default(grid_table_page):
     expect(widget).to_contain_text('演示数据')
     for h in grid_table_page.DEMO_HEADERS:
         expect(grid_table_page.widget_thead()).to_contain_text(h)
-    assert grid_table_page.widget_row_count() == grid_table_page.DEMO_ROW_COUNT
+    # 分页：首页 20 行 / 共 24 行
+    assert grid_table_page.widget_row_count() == grid_table_page.DEMO_PAGE_SIZE
+    expect(grid_table_page.canvas_widgets().first).to_contain_text(
+        f'of {grid_table_page.DEMO_ROW_COUNT}')
 
 
 @allure.feature('界面编辑器')

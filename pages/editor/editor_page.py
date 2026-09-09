@@ -11,8 +11,8 @@ class EditorPage:
     def __init__(self, page):
         self.page = page
 
-        # 顶部导航（不在工具栏里）：进入界面编辑器
-        self.editor_button = page.get_by_role('button', name='界面编辑器')
+        # 顶部导航（不在工具栏里）：进入界面编辑器。是一组 MUI Tab（role=tab）
+        self.editor_button = page.get_by_role('tab', name='界面编辑器')
 
         # ==================== 工具栏 dashboard-toolbar ====================
         # 一整条，从左到右一字排开，彼此同级、跟当前是自由还是栅格布局无关：
@@ -48,11 +48,11 @@ class EditorPage:
         self.publish_button = self.toolbar.get_by_role('button', name='发布')
 
         # ==================== 右侧栏 ====================
-        self.edit_manage_button = page.get_by_text('编辑管理', exact=True)
-        self.version_manage_button = page.get_by_text('版本管理', exact=True)
-        # 同样两个东西的 role=tab 定位（右抽屉顶部的 tab）
-        self.edit_manage_tab = page.get_by_role('tab', name='编辑管理')
-        self.version_manage_tab = page.get_by_role('tab', name='版本管理')
+        # 右抽屉顶部的「编辑管理 / 版本管理」是一对 role=tab
+        self.edit_manage_button = page.get_by_role('tab', name='编辑管理')
+        self.version_manage_button = page.get_by_role('tab', name='版本管理')
+        self.edit_manage_tab = self.edit_manage_button
+        self.version_manage_tab = self.version_manage_button
         # 「发布」弹出的「发布看板」对话框
         self.publish_dialog = page.get_by_role('dialog').filter(has_text='发布看板')
         # 右侧显示 Page(布局级) 属性时的标志控件（点空白 / 编辑管理 tab 都会切到它）

@@ -70,12 +70,9 @@ def test_json_shows_layout_json(grid_text_page):
 
 @allure.feature('界面编辑器')
 @allure.story('栅格布局-视图与面板')
-@allure.title('[现状] 栅格布局在 JSON 里改内容、切回 UI，画布不同步')
-@allure.severity(allure.severity_level.NORMAL)
-def test_json_edit_does_not_sync_back(grid_text_page):
-    # ⚠️ 现状记录（非期望）：自由布局在 <>JSON 里改内容、切回 UI 可视，画布会同步；
-    # 栅格布局改了 JSON 再切回 UI，画布内容不变（改动没生效）。又一处自由/栅格不一致。
-    # TODO(bug) 期望：应与自由布局一致 —— 切回 UI 后画布显示 GRID-JSON-B。
+@allure.title('<>JSON 里改内容、切回 UI，画布同步更新')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_json_edit_syncs_back(grid_text_page):
     page = grid_text_page.page
     grid_text_page.prop_content.fill('GRID-JSON-A')
     expect(page.get_by_text('GRID-JSON-A')).to_be_visible()
@@ -85,9 +82,9 @@ def test_json_edit_does_not_sync_back(grid_text_page):
     grid_text_page.set_json(txt.replace('GRID-JSON-A', 'GRID-JSON-B'))
     grid_text_page.switch_to_ui()
 
-    # 现状：画布还是 A，没变成 B
-    expect(page.get_by_text('GRID-JSON-A')).to_be_visible()
-    expect(page.get_by_text('GRID-JSON-B')).to_have_count(0)
+    # 切回 UI 后画布内容同步成 JSON 里改的值
+    expect(page.get_by_text('GRID-JSON-B')).to_be_visible()
+    expect(page.get_by_text('GRID-JSON-A')).to_have_count(0)
 
 
 @allure.feature('界面编辑器')

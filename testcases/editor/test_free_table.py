@@ -14,10 +14,12 @@ def test_table_default(free_table_page):
     widget = free_table_page.canvas_widgets().first
     expect(widget).to_contain_text('数据表格')
     expect(widget).to_contain_text('演示数据')
-    # 演示表格：中文表头 + 固定 24 行
+    # 演示表格：中文表头 + 分页（首页 20 行 / 共 24 行）
     for h in free_table_page.DEMO_HEADERS:
         expect(free_table_page.widget_thead()).to_contain_text(h)
-    assert free_table_page.widget_row_count() == free_table_page.DEMO_ROW_COUNT
+    assert free_table_page.widget_row_count() == free_table_page.DEMO_PAGE_SIZE
+    expect(free_table_page.canvas_widgets().first).to_contain_text(
+        f'of {free_table_page.DEMO_ROW_COUNT}')
 
 
 @allure.feature('界面编辑器')
@@ -97,7 +99,7 @@ def test_table_title_recover(free_table_page):
 
 
 # ==================== 每页行数 ====================
-# 演示数据固定 24 行、不分页，改每页行数在画布上没有可见变化，只校验属性值。
+# 只校验属性值来回改能生效。
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')

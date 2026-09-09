@@ -124,23 +124,97 @@ config = read_yaml('config/config.yaml')
 #     return _compare
 
 
+def _pin_playwright_windows_to_bottom(stop_flag, browser_exe):
+    """后台线程：把「Playwright 启动的这个 Chromium」的窗口一直压在桌面最底层。
+
+    识别方式是「窗口所属进程的可执行文件 == Playwright 自带的 chromium」——
+    不是「运行期间新出现的 Chrome 窗口」。后者会把用户自己后开的 Google Chrome
+    窗口（新窗口 / 弹出 DevTools / 重启 Chrome 等，HWND 都是新的）也一起误伤，
+    而且 Chrome_WidgetWin_1 这个窗口类 Electron 应用（VSCode / Slack 等）也在用。
+    按进程路径认，用户自己的 Google Chrome（装在 Program Files 里）永远不受影响，
+    想置顶置底都随意。
+    """
+    import win32api, win32con, win32gui, win32process
+
+    browser_exe = browser_exe.lower()
+    exe_by_pid = {}
+
+    def proc_exe(pid):
+        if pid not in exe_by_pid:
+            path = None
+            for access in (win32con.PROCESS_QUERY_LIMITED_INFORMATION,
+                           win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ):
+                try:
+                    h = win32api.OpenProcess(access, False, pid)
+                    try:
+                        path = win32process.GetModuleFileNameEx(h, 0)
+                    finally:
+                        win32api.CloseHandle(h)
+                    break
+                except Exception:
+                    continue
+            exe_by_pid[pid] = (path or '').lower()
+        return exe_by_pid[pid]
+
+    def push_down(hwnd, _):
+        if win32gui.GetClassName(hwnd) != 'Chrome_WidgetWin_1':
+            return
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        if proc_exe(pid) == browser_exe:
+            win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
+
+    while not stop_flag.is_set():
+        try:
+            win32gui.EnumWindows(push_down, None)
+        except Exception:
+            pass
+        stop_flag.wait(0.15)
+
+
 @pytest.fixture(scope='session')
 def browser():
     pw = sync_playwright().start()
     b = None
+    stop_flag = None
     try:
         headless = os.getenv('CI', '') != ''
         b = pw.chromium.launch(headless=headless)
+        if not headless:
+            import threading
+            stop_flag = threading.Event()
+            threading.Thread(
+                target=_pin_playwright_windows_to_bottom,
+                args=(stop_flag, pw.chromium.executable_path),
+                daemon=True,
+            ).start()
         yield b
     finally:
-        # 打开的资源都在 finally 里按相反顺序关闭，用例异常时也能收干净
+        if stop_flag is not None:
+            stop_flag.set()
         if b is not None:
             b.close()
         pw.stop()
 
+
+# 浏览器自身/环境的良性噪音，不当成前端 bug
+_BENIGN_PAGE_ERRORS = (
+    'ResizeObserver loop',
+    'Non-Error promise rejection captured',
+)
+
+
 @pytest.fixture
 def page(browser):
     p = browser.new_page(viewport={'width': 1440, 'height': 900})
+    # 全局兜底：收集「前端未捕获报错 / 渲染进程崩溃」。
+    # 大多数白屏都是某个未捕获异常把 React 根卸载掉——它一定会走到 pageerror。
+    # 收在这里，由下面的 fail_on_page_error 在用例结束时判定。
+    p.page_errors = []
+    p.console_errors = []
+    p.on('pageerror', lambda e: p.page_errors.append(str(e)))
+    p.on('crash', lambda: p.page_errors.append('页面渲染进程崩溃 (page crash)'))
+    p.on('console', lambda m: p.console_errors.append(m.text) if m.type == 'error' else None)
     yield p
     p.close()
 
@@ -150,6 +224,41 @@ def pytest_runtest_makereport(item, call):
     outcome = yield
     rep = outcome.get_result()
     setattr(item, f"rep_{rep.when}", rep)
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        'markers',
+        'allow_page_errors: 本用例预期会触发前端报错，豁免 fail_on_page_error 兜底',
+    )
+
+
+@pytest.fixture(autouse=True)
+def fail_on_page_error(request, page):
+    # 依赖 page，于是在 page 之前销毁——此时页面还没关，能截图
+    yield
+    rep = getattr(request.node, 'rep_call', None)
+    # 用例自己就失败/跳过了，别再叠加噪音；只在「用例流程跑通了」时才追究前端报错
+    if rep is None or not rep.passed:
+        return
+    if request.node.get_closest_marker('allow_page_errors'):
+        return
+    errs = [e for e in page.page_errors
+            if not any(b in e for b in _BENIGN_PAGE_ERRORS)]
+    if not errs:
+        return
+    allure.attach('\n\n'.join(errs), name='前端未捕获报错',
+                  attachment_type=allure.attachment_type.TEXT)
+    if page.console_errors:
+        allure.attach('\n'.join(page.console_errors[-30:]), name='console error',
+                      attachment_type=allure.attachment_type.TEXT)
+    try:
+        allure.attach(page.screenshot(), name='报错时截图',
+                      attachment_type=allure.attachment_type.PNG)
+    except Exception:
+        pass
+    pytest.fail('用例流程通过，但触发了前端未捕获报错（可能白屏）：\n- '
+                + '\n- '.join(e[:400] for e in errs))
 
 
 @pytest.fixture(autouse=True)
@@ -182,7 +291,7 @@ def home_page(page):
     # 原来的实现不检查就返回，30 秒后才在下游 fixture 里以"找不到 界面编辑器
     # 按钮"的形式报错，很难看出真因。这里改成：导航后确认主页标志元素
     # （界面编辑器按钮）真的出现，没出现就重试整个导航，最多 3 次。
-    editor_button = page.get_by_role('button', name='界面编辑器')
+    editor_button = page.get_by_role('tab', name='界面编辑器')
     for attempt in range(1, 4):
         page.goto(config['url'])
         page.wait_for_load_state('networkidle')

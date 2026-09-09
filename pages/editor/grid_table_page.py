@@ -5,7 +5,9 @@ class GridTablePage(GridLayoutPage):
     # 演示表格当前的表头（中文）与列序号（1 起）
     DEMO_HEADERS = ['故障编码', '等级', '卫星', '时间', '状态']
     DEMO_COLUMNS = {'故障编码': 1, '等级': 2, '卫星': 3, '时间': 4, '状态': 5}
+    # 演示数据共 24 行，画布表格按每页 20 行分页
     DEMO_ROW_COUNT = 24
+    DEMO_PAGE_SIZE = 20
     FILTER_PLACEHOLDERS = ['筛选 故障编码', '筛选 等级', '筛选 卫星', '筛选 时间', '筛选 状态']
     # 交互事件下拉：{字段 title: {选项文案: value}}
     EVENT_SELECTS = {

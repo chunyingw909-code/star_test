@@ -81,25 +81,18 @@ def test_new_confirm_clears_template(free_layout_page):
 
 @allure.feature('界面编辑器')
 @allure.story('新建')
-@allure.title('[现状] 栅格布局下「新建」弹出确认框，但点确定并不清空画布')
-@allure.severity(allure.severity_level.NORMAL)
-def test_new_in_grid_confirm_does_not_clear(grid_text_page):
-    # ⚠️ 现状记录（非期望）：栅格布局下「新建」按钮在、点击也会弹出同样文案的
-    # 原生 confirm，但点「确定」后画布组件**没有被清空**（自由布局会清空）。
-    # 又一处自由/栅格不一致。
-    # TODO(bug) 期望：应与自由布局一致 —— 点确定后 all_widgets() 归 0。
+@allure.title('栅格布局下「新建」+确定，画布被清空')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_new_in_grid_confirm_clears_canvas(grid_text_page):
     page = grid_text_page.page
     ed = EditorPage(page)
-    expect(ed.new_button).to_be_visible()
     expect(ed.all_widgets()).to_have_count(1)
 
     seen = {}
     page.once('dialog', lambda d: (seen.update(type=d.type, message=d.message), d.accept()))
     ed.new_button.click()
-    page.wait_for_timeout(2000)
 
-    # 确认框本身正常
+    expect(ed.all_widgets()).to_have_count(0)
+    # 弹的是浏览器原生 confirm，文案与自由布局一致
     assert seen.get('type') == 'confirm'
     assert seen.get('message') == EditorPage.NEW_CONFIRM_MESSAGE
-    # 现状：画布没清空
-    expect(ed.all_widgets()).to_have_count(1)
