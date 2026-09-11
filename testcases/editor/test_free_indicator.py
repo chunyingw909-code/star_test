@@ -1,369 +1,113 @@
+"""指示牌组件。
+
+⚠️ 只有【标签 / 单位 / 图标】在画布上看得出来，其余现在都是摆设：
+   数值、警告阈值、危险阈值、小数位 —— 画布上数值一直显示 "—"（拿不到数据）
+   显示状态                     —— 配套的状态趋势也没做好
+   卫星 ID、字段路径             —— 绑遥测数据用的，现在连不上真实数据
+等能连上真实数据再补。
+"""
 import allure
 from playwright.sync_api import expect
+
+from testcases.editor.common_style_cases import CommonStyleCases
 
 
 # ==================== 默认状态 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('添加指示牌后画布出现组件，默认显示"CPU 使用率"')
+@allure.title('添加指示牌后画布出现组件，默认标签"CPU 使用率"、单位"%"')
 @allure.severity(allure.severity_level.BLOCKER)
-def test_indicator_default(free_indicator_page):
+def test_indicator_add(free_indicator_page):
+    ip = free_indicator_page
+    expect(ip.canvas_widgets()).to_have_count(1)
     # 画布断言
-    expect(free_indicator_page.canvas_widgets()).to_have_count(1)
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('CPU 使用率')
+    expect(ip.widget_label).to_have_text('CPU 使用率')
+    expect(ip.widget).to_contain_text('%')
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('点击组件，右侧属性面板显示默认值')
+@allure.title('点击组件，属性面板显示默认值')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_select_shows_properties(free_indicator_page):
-    free_indicator_page.click_widget()
-    expect(free_indicator_page.prop_panel).to_be_visible()
+def test_indicator_defaults(free_indicator_page):
+    ip = free_indicator_page
+    ip.click_widget()
     # 右侧断言
-    expect(free_indicator_page.prop_label).to_have_value('CPU 使用率')
-    expect(free_indicator_page.prop_value).to_have_value('45.2')
-    expect(free_indicator_page.prop_unit).to_have_value('%')
-    expect(free_indicator_page.prop_warning_threshold).to_have_value('70')
-    expect(free_indicator_page.prop_danger_threshold).to_have_value('90')
-    expect(free_indicator_page.prop_icon).to_have_text('CPU')
-    expect(free_indicator_page.prop_decimal).to_have_value('1')
+    expect(ip.prop_panel).to_be_visible()
+    expect(ip.prop_label).to_have_value('CPU 使用率')
+    expect(ip.prop_unit).to_have_value('%')
+    expect(ip.prop_icon).to_have_text('CPU')
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
 @allure.title('点击画布空白区域，属性面板隐藏')
 @allure.severity(allure.severity_level.NORMAL)
-def test_indicator_click_blank_hides_properties(free_indicator_page):
-    free_indicator_page.click_widget()
-    expect(free_indicator_page.prop_panel).to_be_visible()
-    free_indicator_page.click_canvas_blank()
-    expect(free_indicator_page.prop_panel).to_be_hidden()
+def test_indicator_panel_hides(free_indicator_page):
+    ip = free_indicator_page
+    ip.click_widget()
+    expect(ip.prop_panel).to_be_visible()
+    ip.click_canvas_blank()
+    expect(ip.prop_panel).to_be_hidden()
 
 
 # ==================== 标签 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('修改标签为"母线电流"')
+@allure.title('修改标签为"母线电流"，画布同步；清空也同步')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_modify_label(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_label.fill('母线电流')
+def test_indicator_label(free_indicator_page):
+    ip = free_indicator_page
+    ip.click_widget()
+    ip.prop_label.fill('母线电流')
     # 右侧断言
-    expect(free_indicator_page.prop_label).to_have_value('母线电流')
+    expect(ip.prop_label).to_have_value('母线电流')
     # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('母线电流')
+    expect(ip.widget_label).to_have_text('母线电流')
 
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('清空标签')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_clear_label(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_label.fill('')
-    # 右侧断言
-    expect(free_indicator_page.prop_label).to_have_value('')
-    # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).not_to_contain_text('CPU 使用率')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('标签恢复为"CPU 使用率"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_label_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_label.fill('母线电流')
-    free_indicator_page.prop_label.fill('CPU 使用率')
-    # 右侧断言
-    expect(free_indicator_page.prop_label).to_have_value('CPU 使用率')
-    # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('CPU 使用率')
-
-
-# ==================== 数值 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('修改数值为88.5')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_modify_value(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_value.fill('88.5')
-    # 右侧断言
-    expect(free_indicator_page.prop_value).to_have_value('88.5')
-    # 画布断言（不截图：数值跨阈值时卡片有状态色的渐变/脉冲动画，
-    # 截图时机不同背景色会不同，SSIM 必然误报——改判画布上的数字）
-    expect(free_indicator_page.widget_value_text()).to_have_text('88.5')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('数值调整为0')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_value_zero(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_value.fill('0')
-    # 右侧断言
-    expect(free_indicator_page.prop_value).to_have_value('0')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('数值恢复为45.2')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_value_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_value.fill('88.5')
-    free_indicator_page.prop_value.fill('45.2')
-    # 右侧断言
-    expect(free_indicator_page.prop_value).to_have_value('45.2')
+    ip.prop_label.fill('')
+    expect(ip.widget_label).to_have_text('')
 
 
 # ==================== 单位 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('修改单位为"A"')
+@allure.title('修改单位为"A"，画布同步；清空也同步')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_modify_unit(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_unit.fill('A')
+def test_indicator_unit(free_indicator_page):
+    ip = free_indicator_page
+    ip.click_widget()
+    ip.prop_unit.fill('A')
     # 右侧断言
-    expect(free_indicator_page.prop_unit).to_have_value('A')
+    expect(ip.prop_unit).to_have_value('A')
     # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('A')
+    expect(ip.widget_unit).to_have_text('A')
 
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('清空单位')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_unit_clear(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_unit.fill('')
-    # 右侧断言
-    expect(free_indicator_page.prop_unit).to_have_value('')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('单位恢复为"%"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_unit_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_unit.fill('A')
-    free_indicator_page.prop_unit.fill('%')
-    # 右侧断言
-    expect(free_indicator_page.prop_unit).to_have_value('%')
-    # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('%')
-
-
-# ==================== 警告阈值 / 危险阈值 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('数值88.5，处于警告阈值(70)与危险阈值(90)之间')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_warning_threshold(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_warning_threshold.fill('70')
-    free_indicator_page.prop_danger_threshold.fill('90')
-    free_indicator_page.prop_value.fill('88.5')
-    # 右侧断言
-    expect(free_indicator_page.prop_warning_threshold).to_have_value('70')
-    expect(free_indicator_page.prop_danger_threshold).to_have_value('90')
-    expect(free_indicator_page.prop_value).to_have_value('88.5')
-    # 画布断言（不截图：跨阈值时卡片状态色有渐变/脉冲动画，截图时机不同会误报）
-    expect(free_indicator_page.widget_value_text()).to_have_text('88.5')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('数值95，超过危险阈值(90)')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_danger_threshold(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_warning_threshold.fill('70')
-    free_indicator_page.prop_danger_threshold.fill('90')
-    free_indicator_page.prop_value.fill('95')
-    # 右侧断言
-    expect(free_indicator_page.prop_value).to_have_value('95')
-    # 画布断言（不截图：跨阈值时卡片状态色有渐变/脉冲动画，截图时机不同会误报）
-    expect(free_indicator_page.widget_value_text()).to_have_text('95.0')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('数值50，低于警告阈值(70)，正常状态')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_normal_state(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_warning_threshold.fill('70')
-    free_indicator_page.prop_danger_threshold.fill('90')
-    free_indicator_page.prop_value.fill('50')
-    # 右侧断言
-    expect(free_indicator_page.prop_value).to_have_value('50')
-    # 截图断言（数值50 < 警告70，卡片应为正常态）
+    ip.prop_unit.fill('')
+    expect(ip.widget_unit).to_have_text('')
 
 
 # ==================== 图标 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('切换图标为"内存"')
+@allure.title('图标逐项切换（CPU / 内存 / 网络 / 速度 / 温度），画布图标跟着换')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_icon_memory(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='内存').click()
-    # 右侧断言
-    expect(free_indicator_page.prop_icon).to_have_text('内存')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('切换图标为"网络"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_icon_network(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='网络').click()
-    # 右侧断言
-    expect(free_indicator_page.prop_icon).to_have_text('网络')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('切换图标为"温度"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_icon_temp(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='温度').click()
-    # 右侧断言
-    expect(free_indicator_page.prop_icon).to_have_text('温度')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('切换图标为"速度"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_icon_speed(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='速度').click()
-    # 右侧断言
-    expect(free_indicator_page.prop_icon).to_have_text('速度')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('图标恢复为"CPU"')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_icon_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='温度').click()
-    free_indicator_page.prop_icon.click()
-    free_indicator_page.page.get_by_role('option', name='CPU').click()
-    # 右侧断言
-    expect(free_indicator_page.prop_icon).to_have_text('CPU')
-
-
-# ==================== 小数位 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('小数位设置为0')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_decimal_0(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_decimal.fill('0')
-    # 右侧断言
-    expect(free_indicator_page.prop_decimal).to_have_value('0')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('小数位设置为3')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_decimal_3(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_decimal.fill('3')
-    # 右侧断言
-    expect(free_indicator_page.prop_decimal).to_have_value('3')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('小数位恢复为1')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_decimal_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_decimal.fill('0')
-    free_indicator_page.prop_decimal.fill('1')
-    # 右侧断言
-    expect(free_indicator_page.prop_decimal).to_have_value('1')
-
-
-# ==================== 显示状态 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('隐藏状态趋势（选择"否"）')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_hide_status(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.show_status_radio('否').check()
-    # 右侧断言
-    expect(free_indicator_page.show_status_radio('否')).to_be_checked()
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('恢复显示状态趋势（选择"是"）')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_show_status_recover(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.show_status_radio('否').check()
-    free_indicator_page.show_status_radio('是').check()
-    # 右侧断言
-    expect(free_indicator_page.show_status_radio('是')).to_be_checked()
-
-
-# ==================== 数据绑定 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('输入数据源和字段路径')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_indicator_data_binding(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_data_source.fill('SAT-01')
-    free_indicator_page.prop_field_path.fill('cpu.usage')
-    # 右侧断言
-    expect(free_indicator_page.prop_data_source).to_have_value('SAT-01')
-    expect(free_indicator_page.prop_field_path).to_have_value('cpu.usage')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-指示牌组件')
-@allure.title('清空数据源和字段路径')
-@allure.severity(allure.severity_level.NORMAL)
-def test_indicator_data_binding_clear(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_data_source.fill('SAT-01')
-    free_indicator_page.prop_field_path.fill('cpu.usage')
-    free_indicator_page.prop_data_source.fill('')
-    free_indicator_page.prop_field_path.fill('')
-    # 右侧断言
-    expect(free_indicator_page.prop_data_source).to_have_value('')
-    expect(free_indicator_page.prop_field_path).to_have_value('')
+def test_indicator_icon_all_options(free_indicator_page):
+    ip = free_indicator_page
+    ip.click_widget()
+    for label, testid in ip.ICONS.items():
+        ip.pick_option(ip.prop_icon, label)
+        # 右侧断言
+        expect(ip.prop_icon, f'图标下拉应显示 {label}').to_have_text(label)
+        # 画布断言：只出现这一个图标
+        expect(ip.widget_icon(testid), f'图标选 {label} 时画布应出现 {testid}').to_have_count(1)
+        for other in (t for t in ip.ICONS.values() if t != testid):
+            expect(ip.widget_icon(other),
+                   f'图标选 {label} 时不该同时有 {other}').to_have_count(0)
 
 
 # ==================== 删除 ====================
@@ -373,28 +117,37 @@ def test_indicator_data_binding_clear(free_indicator_page):
 @allure.title('删除指示牌组件')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_indicator_delete(free_indicator_page):
-    expect(free_indicator_page.canvas_widgets()).to_have_count(1)
-    free_indicator_page.delete_widget()
-    expect(free_indicator_page.canvas_widgets()).to_have_count(0)
+    ip = free_indicator_page
+    expect(ip.canvas_widgets()).to_have_count(1)
+    ip.delete_widget()
+    expect(ip.canvas_widgets()).to_have_count(0)
 
 
 # ==================== 组合修改 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-指示牌组件')
-@allure.title('组合修改标签、数值、单位与阈值')
+@allure.title('同时修改标签、单位、图标')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_indicator_combined(free_indicator_page):
-    free_indicator_page.click_widget()
-    free_indicator_page.prop_label.fill('母线电流')
-    free_indicator_page.prop_value.fill('88.5')
-    free_indicator_page.prop_unit.fill('A')
-    free_indicator_page.prop_warning_threshold.fill('70')
-    free_indicator_page.prop_danger_threshold.fill('90')
+    ip = free_indicator_page
+    ip.click_widget()
+    ip.prop_label.fill('母线电流')
+    ip.prop_unit.fill('A')
+    ip.pick_option(ip.prop_icon, '网络')
+
     # 右侧断言
-    expect(free_indicator_page.prop_label).to_have_value('母线电流')
-    expect(free_indicator_page.prop_value).to_have_value('88.5')
-    expect(free_indicator_page.prop_unit).to_have_value('A')
+    expect(ip.prop_label).to_have_value('母线电流')
+    expect(ip.prop_unit).to_have_value('A')
+    expect(ip.prop_icon).to_have_text('网络')
     # 画布断言
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('母线电流')
-    expect(free_indicator_page.canvas_widgets().first).to_contain_text('A')
+    expect(ip.widget_label).to_have_text('母线电流')
+    expect(ip.widget_unit).to_have_text('A')
+    expect(ip.widget_icon('NetworkCheckIcon')).to_have_count(1)
+
+
+# ==================== 通用样式（共用用例集）====================
+
+class TestIndicatorCommonStyle(CommonStyleCases):
+    widget_fixture = 'free_indicator_page'
+    story = '自由布局-指示牌组件'

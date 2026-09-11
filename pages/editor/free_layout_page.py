@@ -1,5 +1,6 @@
 from pages.editor.widget_catalog import LABELS
 from pages.editor.json_view_mixin import JsonViewMixin
+from pages.editor.editor_page import EditorPage
 
 
 class FreeLayoutPage(JsonViewMixin):
@@ -10,6 +11,9 @@ class FreeLayoutPage(JsonViewMixin):
 
     def __init__(self, page):
         self.page = page
+        # 工具栏级的东西（编辑/预览、分辨率、主题、模板、插件、新建、发布、
+        # 布局名称、版本管理 tab）统一走这个，用例里不用再自己 new 一遍
+        self.editor = EditorPage(page)
         # —— 自由布局子工具栏（画布上方那一条：GridStack 说明 · 保存 · 添加组件；
         #    以及 UI可视 / <>JSON 视图切换）——
         # 这两个按钮的无障碍名算不准（"<>JSON" 里的 <> 会坏事），一律按文字匹配
@@ -60,6 +64,25 @@ class FreeLayoutPage(JsonViewMixin):
         widget = self.canvas_widgets().nth(index)
         widget.hover()
         widget.get_by_test_id('CloseIcon').click()
+
+    # ==================== 颜色控件 ====================
+    # 面板里每个颜色属性都是一对：左边一个色块，右边一个十六进制文本框。
+    # 色块是浏览器原生的 <input type="color">（title="打开调色盘"），点它弹出的
+    # 是浏览器自带的调色盘 —— 那个调色盘不在页面 DOM 里，自动化点不进去。
+    # 但可以直接给色块 fill() 一个颜色，效果等同于「用户在调色盘里选完了」，
+    # 应用照样能收到，用这个来覆盖「通过色块改色」这条链路。
+
+    def pick_option(self, combobox, name):
+        """点开一个 MUI 下拉框并选中某一项（选项是 role=option，不是原生 select）。"""
+        combobox.click()
+        self.page.get_by_role('option', name=name, exact=True).click()
+        self.page.wait_for_timeout(400)
+
+    def color_swatch(self, label):
+        """跟某个颜色文本框（如 '颜色' / '正常颜色'）配对的那个色块。"""
+        return (self.page.locator('div:has(> input[type="color"])')
+                .filter(has=self.page.get_by_label(label, exact=True))
+                .locator('input[type="color"]').first)
 
     # 点击画布空白处，取消选中组件
     def click_canvas_blank(self):

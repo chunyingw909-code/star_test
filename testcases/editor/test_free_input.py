@@ -1,5 +1,11 @@
+"""输入框组件。
+
+⚠️「API 地址」「字段名」不生效，不测（属性面板里还有，但填了没用）。
+   等能真连数据源了再补。
+"""
 import allure
 from playwright.sync_api import expect
+from testcases.editor.common_style_cases import CommonStyleCases
 
 
 # ==================== 默认状态 ====================
@@ -27,8 +33,6 @@ def test_input_select_shows_properties(free_input_page):
     expect(free_input_page.prop_placeholder).to_have_value('请输入...')
     expect(free_input_page.prop_default_value).to_have_value('')
     expect(free_input_page.prop_rows).to_have_value('1')
-    expect(free_input_page.prop_api_url).to_have_value('')
-    expect(free_input_page.prop_field_name).to_have_value('')
     expect(free_input_page.multiline_radio('否')).to_be_checked()
     # CSS断言
     expect(free_input_page.widget_input()).to_have_css('font-size', '12px')
@@ -232,38 +236,6 @@ def test_input_rows_recover(free_input_page):
     expect(free_input_page.widget_textarea()).to_have_attribute('rows', '1')
 
 
-# ==================== 数据绑定 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-输入框组件')
-@allure.title('输入API地址和字段名')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_input_data_binding(free_input_page):
-    free_input_page.click_widget()
-    free_input_page.prop_api_url.fill('abc')
-    free_input_page.prop_field_name.fill('xyz')
-    # 右侧断言
-    expect(free_input_page.prop_api_url).to_have_value('abc')
-    expect(free_input_page.prop_field_name).to_have_value('xyz')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-输入框组件')
-@allure.title('清空API地址和字段名')
-@allure.severity(allure.severity_level.NORMAL)
-def test_input_data_binding_clear(free_input_page):
-    free_input_page.click_widget()
-    free_input_page.prop_api_url.fill('abc')
-    free_input_page.prop_field_name.fill('xyz')
-    free_input_page.prop_api_url.fill('')
-    free_input_page.prop_field_name.fill('')
-    # 右侧断言
-    expect(free_input_page.prop_api_url).to_have_value('')
-    expect(free_input_page.prop_field_name).to_have_value('')
-
-
-# ==================== 删除 ====================
-
 @allure.feature('界面编辑器')
 @allure.story('自由布局-输入框组件')
 @allure.title('删除输入框组件')
@@ -307,14 +279,13 @@ def test_input_combined(free_input_page):
 @allure.title('设默认值后编辑态画布不变、预览态输入框带出默认值')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_input_default_value_in_preview(free_input_page):
-    from pages.editor.editor_page import EditorPage
     free_input_page.click_widget()
     free_input_page.prop_default_value.fill('SAT-01')
     expect(free_input_page.prop_default_value).to_have_value('SAT-01')
     # 编辑态画布输入框仍为空
     expect(free_input_page.widget_input()).to_have_value('')
     # 预览态：渲染出来的输入框带上默认值
-    EditorPage(free_input_page.page).enter_preview()
+    free_input_page.editor.enter_preview()
     expect(free_input_page.preview_input()).to_have_value('SAT-01')
 
 
@@ -323,9 +294,16 @@ def test_input_default_value_in_preview(free_input_page):
 @allure.title('多行模式下默认值在预览态填进文本域')
 @allure.severity(allure.severity_level.NORMAL)
 def test_input_default_value_multiline_in_preview(free_input_page):
-    from pages.editor.editor_page import EditorPage
     free_input_page.click_widget()
     free_input_page.multiline_radio('是').check()
     free_input_page.prop_default_value.fill('第一行内容')
-    EditorPage(free_input_page.page).enter_preview()
+    free_input_page.editor.enter_preview()
     expect(free_input_page.preview_textarea()).to_have_value('第一行内容')
+
+
+# ==================== 通用样式（共用用例集）====================
+# 上/下/左/右边距 · 圆角 · 透明度 —— 用例写在 common_style_cases.py，这里只挂上去
+
+class TestInputCommonStyle(CommonStyleCases):
+    widget_fixture = 'free_input_page'
+    story = '自由布局-输入框组件'

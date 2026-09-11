@@ -1,8 +1,7 @@
 """内置组件清单（唯一数据源）。
 
-同一份 12 个组件，被三处引用并各自校验：
+同一份 12 个组件，被两处引用并各自校验：
 - 自由布局「添加组件」菜单
-- 栅格布局左侧组件库（按分类）
 - Plugin Manager 表格（显示名 / Type / 分类）
 
 顺序即自由布局菜单 / Plugin Manager 表格里的顺序。
@@ -25,14 +24,3 @@ WIDGETS = [
 
 LABELS = [w['label'] for w in WIDGETS]
 TYPES = [w['type'] for w in WIDGETS]
-
-
-def by_category():
-    """{分类: [显示名, ...]}，分类按首次出现顺序。"""
-    out = {}
-    for w in WIDGETS:
-        out.setdefault(w['category'], []).append(w['label'])
-    return out
-
-
-CATEGORIES = list(by_category())

@@ -1,5 +1,11 @@
+"""数值输入组件。
+
+⚠️「API 地址」「字段名」不生效，不测（属性面板里还有，但填了没用）。
+   等能真连数据源了再补。
+"""
 import allure
 from playwright.sync_api import expect
+from testcases.editor.common_style_cases import CommonStyleCases
 
 
 # ==================== 默认状态 ====================
@@ -27,8 +33,6 @@ def test_number_select_shows_properties(free_number_page):
     expect(free_number_page.prop_max).to_have_value('9999')
     expect(free_number_page.prop_step).to_have_value('1')
     expect(free_number_page.prop_unit).to_have_value('')
-    expect(free_number_page.prop_api_url).to_have_value('')
-    expect(free_number_page.prop_field_name).to_have_value('')
     # 画布断言：输入框的 min/max/step
     expect(free_number_page.widget_input()).to_have_attribute('min', '0')
     expect(free_number_page.widget_input()).to_have_attribute('max', '9999')
@@ -204,38 +208,6 @@ def test_number_unit_clear(free_number_page):
     expect(free_number_page.canvas_widgets().first).not_to_contain_text('V')
 
 
-# ==================== 数据绑定 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-数值输入组件')
-@allure.title('输入 API 地址和字段名')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_number_data_binding(free_number_page):
-    free_number_page.click_widget()
-    free_number_page.prop_api_url.fill('http://example.com/api')
-    free_number_page.prop_field_name.fill('voltage')
-    # 右侧断言
-    expect(free_number_page.prop_api_url).to_have_value('http://example.com/api')
-    expect(free_number_page.prop_field_name).to_have_value('voltage')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-数值输入组件')
-@allure.title('清空 API 地址和字段名')
-@allure.severity(allure.severity_level.NORMAL)
-def test_number_data_binding_clear(free_number_page):
-    free_number_page.click_widget()
-    free_number_page.prop_api_url.fill('http://example.com/api')
-    free_number_page.prop_field_name.fill('voltage')
-    free_number_page.prop_api_url.fill('')
-    free_number_page.prop_field_name.fill('')
-    # 右侧断言
-    expect(free_number_page.prop_api_url).to_have_value('')
-    expect(free_number_page.prop_field_name).to_have_value('')
-
-
-# ==================== 删除 ====================
-
 @allure.feature('界面编辑器')
 @allure.story('自由布局-数值输入组件')
 @allure.title('删除数值输入组件')
@@ -281,14 +253,13 @@ def test_number_combined(free_number_page):
 @allure.title('设默认值后编辑态画布仍为 0、预览态数值框带出默认值')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_number_default_value_in_preview(free_number_page):
-    from pages.editor.editor_page import EditorPage
     free_number_page.click_widget()
     free_number_page.prop_default_value.fill('42')
     expect(free_number_page.prop_default_value).to_have_value('42')
     # 编辑态画布数值框仍是 0
     expect(free_number_page.widget_input()).to_have_value('0')
     # 预览态：渲染出来的数值框为 42
-    EditorPage(free_number_page.page).enter_preview()
+    free_number_page.editor.enter_preview()
     expect(free_number_page.preview_input()).to_have_value('42')
 
 
@@ -297,15 +268,22 @@ def test_number_default_value_in_preview(free_number_page):
 @allure.title('预览态数值框仍受 min/max/step 约束')
 @allure.severity(allure.severity_level.NORMAL)
 def test_number_preview_keeps_constraints(free_number_page):
-    from pages.editor.editor_page import EditorPage
     free_number_page.click_widget()
     free_number_page.prop_default_value.fill('7')
     free_number_page.prop_min.fill('5')
     free_number_page.prop_max.fill('100')
     free_number_page.prop_step.fill('2')
-    EditorPage(free_number_page.page).enter_preview()
+    free_number_page.editor.enter_preview()
     field = free_number_page.preview_input()
     expect(field).to_have_value('7')
     expect(field).to_have_attribute('min', '5')
     expect(field).to_have_attribute('max', '100')
     expect(field).to_have_attribute('step', '2')
+
+
+# ==================== 通用样式（共用用例集）====================
+# 上/下/左/右边距 · 圆角 · 透明度 —— 用例写在 common_style_cases.py，这里只挂上去
+
+class TestNumberCommonStyle(CommonStyleCases):
+    widget_fixture = 'free_number_page'
+    story = '自由布局-数值输入组件'

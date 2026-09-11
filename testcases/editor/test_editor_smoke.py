@@ -2,14 +2,12 @@ import allure
 import pytest
 from playwright.sync_api import expect
 
-from pages.editor.editor_page import EditorPage
 from pages.editor.template_page import TemplateDialog
 
 
 # 稳定性冒烟：不逐个断属性，只把「容易把前端点崩」的编辑器操作串一遍，
 # 每步之后做个快速体检（工具栏还在 / body 不空 / 没有错误边界文案）。
 # 真正的「未捕获异常 / 白屏」由 conftest 的 fail_on_page_error 全局兜底。
-# 起因：自由布局套模板后点「栅格布局」曾经白屏。这里把 模板 × 布局切换 全组合覆盖。
 
 TEMPLATES = list(TemplateDialog.TEMPLATES)
 
@@ -25,47 +23,34 @@ def _healthy(page):
 
 @allure.feature('界面编辑器')
 @allure.story('稳定性冒烟')
-@allure.title('自由布局套用模板「{tpl}」→ 切到栅格 → 再切回自由，不白屏不报错')
+@allure.title('套用模板「{tpl}」→ 预览往返 → 再套一次，不白屏不报错')
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.parametrize('tpl', TEMPLATES)
-def test_free_template_then_layout_switch(free_layout_page, tpl):
-    ed = EditorPage(free_layout_page.page)
+def test_template_then_preview_roundtrip(free_layout_page, tpl):
+    ed = free_layout_page.editor
     TemplateDialog(ed.page).open().apply(tpl)
     expect(ed.page.get_by_text(TemplateDialog.TEMPLATES[tpl]).first).to_be_visible()
 
-    ed.switch_to_grid()
+    ed.enter_preview()
     _healthy(ed.page)
-    # 断言：模板内容跟着切到栅格布局，没丢
+    # 断言：模板内容在预览态照常渲染，没丢
     expect(ed.page.get_by_text(TemplateDialog.TEMPLATES[tpl]).first).to_be_visible()
 
-    ed.switch_to_free()
+    ed.exit_preview()
     _healthy(ed.page)
+
+    # 同一个模板再套一次（覆盖自己），仍不崩
+    TemplateDialog(ed.page).open().apply(tpl)
+    _healthy(ed.page)
+    expect(ed.page.get_by_text(TemplateDialog.TEMPLATES[tpl]).first).to_be_visible()
 
 
 @allure.feature('界面编辑器')
 @allure.story('稳定性冒烟')
-@allure.title('栅格布局套用模板「{tpl}」→ 切到自由 → 再切回栅格，不白屏不报错')
-@allure.severity(allure.severity_level.CRITICAL)
-@pytest.mark.parametrize('tpl', TEMPLATES)
-def test_grid_template_then_layout_switch(grid_layout_page, tpl):
-    ed = EditorPage(grid_layout_page.page)
-    TemplateDialog(ed.page).open().apply(tpl)
-    expect(ed.page.get_by_text(TemplateDialog.TEMPLATES[tpl]).first).to_be_visible()
-
-    ed.switch_to_free()
-    _healthy(ed.page)
-    expect(ed.page.get_by_text(TemplateDialog.TEMPLATES[tpl]).first).to_be_visible()
-
-    ed.switch_to_grid()
-    _healthy(ed.page)
-
-
-@allure.feature('界面编辑器')
-@allure.story('稳定性冒烟')
-@allure.title('自由布局套模板「综合遥测总览大屏」→ 预览 ↔ 编辑 ↔ JSON ↔ 新建，不白屏不报错')
+@allure.title('套模板「综合遥测总览大屏」→ 预览 ↔ 编辑 ↔ JSON ↔ 新建，不白屏不报错')
 @allure.severity(allure.severity_level.NORMAL)
-def test_free_template_then_view_ops(free_layout_page):
-    ed = EditorPage(free_layout_page.page)
+def test_template_then_view_ops(free_layout_page):
+    ed = free_layout_page.editor
     flp = free_layout_page
     TemplateDialog(ed.page).open().apply(TEMPLATES[0])
 

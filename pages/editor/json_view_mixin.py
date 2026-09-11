@@ -1,6 +1,5 @@
 class JsonViewMixin:
-    """UI可视 / <>JSON 视图切换。自由布局(GridStack)和栅格布局(Puck)都有这一对按钮，
-    机制一样，抽出来两边共用。
+    """UI可视 / <>JSON 视图切换（自由布局 GridStack 画布上方那一对按钮）。
 
     宿主类需提供：
       self.ui_visual_button  —— 「UI可视」按钮

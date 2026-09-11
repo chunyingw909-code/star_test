@@ -1,8 +1,7 @@
 # 页面编辑器
 class EditorPage:
-    # 两种布局的画布根元素
+    # 画布根元素（自由布局 GridStack）
     CANVAS_FREE = '.react-grid-layout'
-    CANVAS_GRID = '[data-testid="dropzone:root:default-zone"]'
     # 「大小屏切换」三档对应的画布固定宽度（与视口无关）
     RESOLUTIONS = {'fullhd': 1920, 'hd': 1366, 'tablet': 1024}
     # 「新建」按钮触发的浏览器原生 confirm 的文案
@@ -15,8 +14,8 @@ class EditorPage:
         self.editor_button = page.get_by_role('tab', name='界面编辑器')
 
         # ==================== 工具栏 dashboard-toolbar ====================
-        # 一整条，从左到右一字排开，彼此同级、跟当前是自由还是栅格布局无关：
-        #   布局名称输入 | 编辑·预览 | 自由·栅格 | 分辨率三档 | 主题 | 模板·插件·流程·新建·发布
+        # 一整条，从左到右一字排开：
+        #   布局名称输入 | 编辑·预览 | 自由布局 | 分辨率三档 | 主题 | 模板·插件·新建·发布
         self.toolbar = page.get_by_test_id('dashboard-toolbar')
 
         # 布局名称输入框
@@ -27,9 +26,8 @@ class EditorPage:
         self.edit_button = self.toolbar.get_by_role('button', name='编辑', exact=True)
         self.preview_button = self.toolbar.get_by_role('button', name='预览', exact=True)
 
-        # 自由布局 / 栅格布局（ToggleButtonGroup；注意 DOM 里 value 是 grid / puck，反直觉）
+        # 自由布局（ToggleButtonGroup 里目前只剩这一档，aria-pressed 恒为 true）
         self.free_layout_button = self.toolbar.get_by_role('button', name='自由布局')
-        self.grid_layout_button = self.toolbar.get_by_role('button', name='栅格布局')
 
         # 屏幕大小三档（data-testid 唯一；aria-label 里带 "1920×1080 (大屏)" 等）
         self.fullhd_button = page.get_by_test_id('resolution-fullhd')
@@ -43,7 +41,6 @@ class EditorPage:
         self.template_button = self.toolbar.get_by_role('button', name='模板')
         # "插件" 按钮算不出无障碍名，按工具栏内文字匹配
         self.plugin_button = self.toolbar.locator('button', has_text='插件')
-        self.flow_button = self.toolbar.get_by_role('button', name='流程')
         self.new_button = self.toolbar.get_by_role('button', name='新建', exact=True)
         self.publish_button = self.toolbar.get_by_role('button', name='发布')
 
@@ -55,57 +52,38 @@ class EditorPage:
         self.version_manage_tab = self.version_manage_button
         # 「发布」弹出的「发布看板」对话框
         self.publish_dialog = page.get_by_role('dialog').filter(has_text='发布看板')
-        # 右侧显示 Page(布局级) 属性时的标志控件（点空白 / 编辑管理 tab 都会切到它）
-        self.page_props_marker = page.get_by_title('布局列数')
-
-        # ==================== 画布结构（预览态整体消失）====================
-        self.left_drawer_items = page.locator('[data-testid^="drawer-item:"]')
-        self.right_property_panel = page.locator('[class*="Sidebar--right"]')
-        self.puck_components = page.locator('[data-puck-component]')
+        # 发布看板里，每个环境（开发/预发布/生产）各一个「发布」按钮，按顺序排
+        self.publish_env_buttons = self.publish_dialog.get_by_role('button', name='发布', exact=True)
+        self.publish_dialog_close = self.publish_dialog.get_by_role('button', name='关闭')
+        # 版本管理 tab 里的三个动作
+        self.publish_new_version_button = page.get_by_role('button', name='发布新版本')
+        self.view_fullscreen_button = page.get_by_role('button', name='查看全屏')
+        self.rollback_edit_button = page.get_by_role('button', name='回滚编辑')
 
     # 切到预览态。编辑态画布只是「设计态占位」，不吃 默认值 / 绑定 等运行时属性；
     # 预览态会真正挂载组件，默认值这类才会体现在渲染出来的控件上。
     def enter_preview(self):
         self.preview_button.click()
-        # 等编辑壳（自由布局的 react-grid-item / 栅格的 puck 组件）卸载
-        self.page.wait_for_selector('.react-grid-item, [data-puck-component]', state='detached')
+        # 等编辑壳（.react-grid-item）卸载
+        self.page.wait_for_selector('.react-grid-item', state='detached')
 
     def exit_preview(self):
         self.edit_button.click()
-        self.page.wait_for_selector('.react-grid-item, [data-puck-component]', state='attached')
+        self.page.wait_for_selector('.react-grid-item', state='attached')
 
-    # ==================== 布局切换（自由 ↔ 栅格）====================
-
-    def current_layout(self):
-        """当前布局：'free' / 'grid'，按 自由布局/栅格布局 按钮的 aria-pressed 判断。"""
-        if self.free_layout_button.get_attribute('aria-pressed') == 'true':
-            return 'free'
-        if self.grid_layout_button.get_attribute('aria-pressed') == 'true':
-            return 'grid'
-        return None
+    # ==================== 布局 ====================
 
     def canvas(self):
-        """当前布局的画布 locator（自由是 .react-grid-layout，栅格是 puck dropzone）。"""
-        sel = self.CANVAS_GRID if self.current_layout() == 'grid' else self.CANVAS_FREE
-        return self.page.locator(sel).first
+        """画布 locator（自由布局 .react-grid-layout）。"""
+        return self.page.locator(self.CANVAS_FREE).first
 
     def all_widgets(self):
-        """两种布局的画布组件合并（自由 .react-grid-item + 栅格 [data-puck-component]）。"""
-        return self.page.locator('.react-grid-item, [data-puck-component]')
+        """画布上的所有组件。"""
+        return self.page.locator('.react-grid-item')
 
     def switch_to_free(self):
         self.free_layout_button.click()
         self.page.locator(self.CANVAS_FREE).first.wait_for(state='visible')
-
-    def switch_to_grid(self):
-        self.grid_layout_button.click()
-        self.page.locator(self.CANVAS_GRID).wait_for(state='visible')
-
-    @property
-    def switch_toast(self):
-        """布局切换后弹出的 Snackbar（role=alert），文案如
-        "已切换到栅格布局（两种模式共享同一数据源）"。不是确认框、不阻塞操作。"""
-        return self.page.get_by_role('alert')
 
     # ==================== 屏幕大小（分辨率）====================
 
@@ -152,21 +130,32 @@ class EditorPage:
         self.page.once('dialog', lambda d: d.dismiss())
         self.new_button.click()
 
+    # ==================== 发布 ====================
+
+    def open_publish_dialog(self):
+        """点工具栏「发布」，等「发布看板」弹出。"""
+        self.publish_button.click()
+        self.publish_dialog.wait_for(state='visible')
+
+    def publish_to(self, env):
+        """在发布看板里点某个环境的「发布」。env: 'dev' / 'pre' / 'prod'（对应
+        开发环境 / 预发布 / 生产环境，按行序 0 / 1 / 2）。"""
+        idx = {'dev': 0, 'pre': 1, 'prod': 2}[env]
+        self.publish_env_buttons.nth(idx).click()
+
     # ==================== 刷新 ====================
 
-    def reload_editor(self, layout='free'):
-        """刷新浏览器并等回到指定布局的编辑态画布（layout: 'free' / 'grid'）。
+    def reload_editor(self):
+        """刷新浏览器并等回到编辑态画布。
         已保存的布局刷新后自动加载；没保存的会丢。若刷新后掉出编辑器则重新进。"""
         self.page.reload()
         self.page.wait_for_load_state('networkidle')
-        sel = self.CANVAS_GRID if layout == 'grid' else self.CANVAS_FREE
         try:
-            self.page.locator(sel).first.wait_for(state='visible', timeout=10000)
+            self.page.locator(self.CANVAS_FREE).first.wait_for(state='visible', timeout=10000)
         except Exception:
             self.editor_button.click()
             self.edit_button.wait_for(state='visible'); self.edit_button.click()
-            btn = self.grid_layout_button if layout == 'grid' else self.free_layout_button
-            btn.wait_for(state='visible'); btn.click()
-            self.page.locator(sel).first.wait_for(state='visible')
+            self.free_layout_button.wait_for(state='visible'); self.free_layout_button.click()
+            self.page.locator(self.CANVAS_FREE).first.wait_for(state='visible')
             self.edit_manage_button.click()
             self.page.wait_for_load_state('networkidle')

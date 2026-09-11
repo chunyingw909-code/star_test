@@ -6,12 +6,9 @@ class PluginManager:
     """工具栏「插件」按钮弹出的 Plugin Manager 对话框的页面对象。
 
     这个弹框是一张表格，12 行对应 12 个内置组件，每行一个开关。
-    关掉某个组件的开关 = 停用该组件插件，效果：
-      - 自由布局：该组件从「添加组件」菜单移除；画布上已放置的同类型组件出现
-        「组件已禁用」徽标，点它右侧属性面板变成锁定提示，禁止编辑。
-      - 栅格布局：目前只做了计数，画布组件会退化成 Puck 兜底串
-        「No configuration for <Type>」，无徽标 / 无锁定提示 / 组件库不隐藏
-        （疑似缺陷，见 test_grid_plugin.py）。
+    关掉某个组件的开关 = 停用该组件插件：该组件从「添加组件」菜单移除；画布上
+    已放置的同类型组件出现「组件已禁用」徽标，点它右侧属性面板变成锁定提示，
+    禁止编辑。
     开关状态会写回后端并持久化，所以任何用到本对象的 fixture，teardown 必须
     调用 enable_all() 把 12 个开关全部恢复成启用，否则污染后续用例。
     """
@@ -30,8 +27,7 @@ class PluginManager:
         self.title = self.dialog.get_by_text('Plugin Manager')
         # "N / 12 enabled" 那行计数文字。切换开关后对它断言最直观
         self.enabled_count = self.dialog.get_by_text('enabled').first
-        # 标题下方的说明文字（"...hidden from the component library..."）。
-        # 单独抽出来是因为栅格布局并没有兑现这句话，回归用例会引用到
+        # 标题下方的说明文字（"...hidden from the component library..."）
         self.description = self.dialog.get_by_text('hidden from the component library')
 
     # ---------- 开关弹框 ----------

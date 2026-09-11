@@ -1,5 +1,11 @@
+"""下拉框组件。
+
+⚠️「API 地址」「字段名」不生效，不测（属性面板里还有，但填了没用）。
+   等能真连数据源了再补。
+"""
 import allure
 from playwright.sync_api import expect
+from testcases.editor.common_style_cases import CommonStyleCases
 
 
 # ==================== 默认状态 ====================
@@ -25,8 +31,6 @@ def test_dropdown_select_shows_properties(free_dropdown_page):
     expect(free_dropdown_page.prop_label).to_have_value('下拉框')
     expect(free_dropdown_page.prop_options).to_have_value('选项一, 选项二, 选项三')
     expect(free_dropdown_page.prop_default_value).to_have_value('')
-    expect(free_dropdown_page.prop_api_url).to_have_value('')
-    expect(free_dropdown_page.prop_field_name).to_have_value('')
 
 
 @allure.feature('界面编辑器')
@@ -107,38 +111,6 @@ def test_dropdown_options_recover(free_dropdown_page):
     expect(free_dropdown_page.prop_options).to_have_value('选项一, 选项二, 选项三')
 
 
-# ==================== 数据绑定 ====================
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-下拉框组件')
-@allure.title('输入API地址和字段名')
-@allure.severity(allure.severity_level.CRITICAL)
-def test_dropdown_data_binding(free_dropdown_page):
-    free_dropdown_page.click_widget()
-    free_dropdown_page.prop_api_url.fill('abc')
-    free_dropdown_page.prop_field_name.fill('xyz')
-    # 右侧断言
-    expect(free_dropdown_page.prop_api_url).to_have_value('abc')
-    expect(free_dropdown_page.prop_field_name).to_have_value('xyz')
-
-
-@allure.feature('界面编辑器')
-@allure.story('自由布局-下拉框组件')
-@allure.title('清空API地址和字段名')
-@allure.severity(allure.severity_level.NORMAL)
-def test_dropdown_data_binding_clear(free_dropdown_page):
-    free_dropdown_page.click_widget()
-    free_dropdown_page.prop_api_url.fill('abc')
-    free_dropdown_page.prop_field_name.fill('xyz')
-    free_dropdown_page.prop_api_url.fill('')
-    free_dropdown_page.prop_field_name.fill('')
-    # 右侧断言
-    expect(free_dropdown_page.prop_api_url).to_have_value('')
-    expect(free_dropdown_page.prop_field_name).to_have_value('')
-
-
-# ==================== 删除 ====================
-
 @allure.feature('界面编辑器')
 @allure.story('自由布局-下拉框组件')
 @allure.title('删除下拉框组件')
@@ -174,7 +146,6 @@ def test_dropdown_combined(free_dropdown_page):
 @allure.title('设默认值后编辑态画布不选中、预览态下拉框默认选中该项')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_dropdown_default_value_in_preview(free_dropdown_page):
-    from pages.editor.editor_page import EditorPage
     free_dropdown_page.click_widget()
     free_dropdown_page.prop_options.fill('选项一, 选项二, 选项三')
     free_dropdown_page.prop_default_value.fill('选项二')
@@ -182,7 +153,7 @@ def test_dropdown_default_value_in_preview(free_dropdown_page):
     # 编辑态画布下拉框没有选中项
     expect(free_dropdown_page.widget_select()).not_to_contain_text('选项二')
     # 预览态：下拉框默认选中「选项二」
-    EditorPage(free_dropdown_page.page).enter_preview()
+    free_dropdown_page.editor.enter_preview()
     expect(free_dropdown_page.preview_select()).to_have_text('选项二')
 
 
@@ -191,9 +162,16 @@ def test_dropdown_default_value_in_preview(free_dropdown_page):
 @allure.title('默认值不在选项列表里时，预览态不选中任何项')
 @allure.severity(allure.severity_level.NORMAL)
 def test_dropdown_default_value_not_in_options(free_dropdown_page):
-    from pages.editor.editor_page import EditorPage
     free_dropdown_page.click_widget()
     free_dropdown_page.prop_options.fill('选项一, 选项二')
     free_dropdown_page.prop_default_value.fill('不存在的项')
-    EditorPage(free_dropdown_page.page).enter_preview()
+    free_dropdown_page.editor.enter_preview()
     expect(free_dropdown_page.preview_select()).not_to_contain_text('不存在的项')
+
+
+# ==================== 通用样式（共用用例集）====================
+# 上/下/左/右边距 · 圆角 · 透明度 —— 用例写在 common_style_cases.py，这里只挂上去
+
+class TestDropdownCommonStyle(CommonStyleCases):
+    widget_fixture = 'free_dropdown_page'
+    story = '自由布局-下拉框组件'

@@ -49,6 +49,44 @@ def free_chart_page(free_layout_page):
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeChartPage(free_layout_page.page)
 
+# 已经绑好数据源、真的出了图的图表。
+# 绑定这个动作本身在 test_free_chart.py 里有独立用例逐步断言（级联下拉 / 预览出
+# 真实数据 / 保存后出图）；这个 fixture 只是把「绑好之后」这个场景固定下来，
+# 给那些必须有图才测得了的用例复用，不是拿 fixture 绕过测试。
+@pytest.fixture
+def free_chart_bound(free_chart_page):
+    free_chart_page.click_widget()
+    free_chart_page.open_bind_dialog()
+    free_chart_page.bound_with = free_chart_page.bind_first_available()
+
+    # 交给用例之前，先把图弄到「选中 + 画面稳定」这个状态。
+    # 两个坑，都是实测出来的：
+    #   1. 图表【首次画出来的那一帧】比之后的重绘多画了点东西（像素指纹里表现为
+    #      颜色种类偏多），而且再也回不到那个状态；重绘过一次就进入稳定态，
+    #      之后改什么属性再改回来都能精确复原。
+    #   2. 点一下画布上的组件（click_widget）会让它重画一遍，又变回首帧那个样子。
+    # 所以顺序必须是：先点选中，再逼它重绘一遍。用例里【不要再点组件】，
+    # 否则第一张指纹又是首帧，「改完再改回来应该复原」就对不上了。
+    free_chart_page.click_widget()
+    free_chart_page.pick_option(free_chart_page.prop_theme, '浅色')
+    free_chart_page.canvas_fingerprint()
+    free_chart_page.pick_option(free_chart_page.prop_theme, '深色')
+    free_chart_page.canvas_fingerprint()
+    return free_chart_page
+
+
+# 已经绑好数据源、点过排序表头（把「保存后第一帧」推过去）、真的在显示真实数据的表格。
+# 绑定这一步本身在 test_free_table.py 里有独立用例逐步断言，
+# 这个 fixture 只是把「有真实数据」这个场景固定下来给别的用例复用。
+@pytest.fixture
+def free_table_bound(free_table_page):
+    free_table_page.click_widget()
+    free_table_page.open_bind_dialog()
+    free_table_page.bound_with = free_table_page.bind_first_available()
+    free_table_page.unstick_sort()
+    return free_table_page
+
+
 # 自由-仪表盘
 @pytest.fixture
 def free_gauge_page(free_layout_page):
@@ -161,6 +199,22 @@ def datasource_ids():
     body = resp.json()
     items = body if isinstance(body, list) else body.get('data') or body.get('items') or []
     return {it.get('type'): it.get('id') or it.get('_id') for it in items if it.get('type')}
+
+
+# 打开「插件」管理对话框（空画布），返回 PluginManager 页面对象。
+# Plugin Manager 是工具栏级弹框，与画布内容无关，所以挂在空的 free_layout_page 上。
+# teardown 把所有开关恢复成启用、关掉弹窗 —— 禁用状态会持久化到后端，不恢复会影响其它用例。
+@pytest.fixture
+def plugin_manager(free_layout_page):
+    pm = PluginManager(free_layout_page.page).open()
+    yield pm
+    try:
+        if not pm.is_open():
+            pm.open()
+        pm.enable_all()
+        pm.close()
+    except Exception as e:
+        print(f'[plugin_manager] 恢复插件开关失败: {e}')
 
 
 # 画布已放一个图表组件 + 打开的 Plugin Manager。
