@@ -10,9 +10,6 @@ class EditorPage:
     def __init__(self, page):
         self.page = page
 
-        # 顶部导航（不在工具栏里）：进入界面编辑器。是一组 MUI Tab（role=tab）
-        self.editor_button = page.get_by_role('tab', name='界面编辑器')
-
         # ==================== 工具栏 dashboard-toolbar ====================
         # 一整条，从左到右一字排开：
         #   布局名称输入 | 编辑·预览 | 自由布局 | 分辨率三档 | 主题 | 模板·插件·新建·发布
@@ -59,6 +56,18 @@ class EditorPage:
         self.publish_new_version_button = page.get_by_role('button', name='发布新版本')
         self.view_fullscreen_button = page.get_by_role('button', name='查看全屏')
         self.rollback_edit_button = page.get_by_role('button', name='回滚编辑')
+
+    @property
+    def editor_button(self):
+        """顶部「界面编辑器」入口。
+
+        新版模块导航带 data-testid=module-tab-editor；旧版只有同名 tab。
+        两套并存时优先 testid，避免点到另一组同名 tab。
+        """
+        by_id = self.page.get_by_test_id('module-tab-editor')
+        if by_id.count():
+            return by_id
+        return self.page.get_by_role('tab', name='界面编辑器').first
 
     # 切到预览态。编辑态画布只是「设计态占位」，不吃 默认值 / 绑定 等运行时属性；
     # 预览态会真正挂载组件，默认值这类才会体现在渲染出来的控件上。

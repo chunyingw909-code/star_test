@@ -34,8 +34,7 @@ class FreeChartPage(FreeLayoutPage):
     # 数据绑定对话框里「统计方式」的选项
     AGGREGATIONS = ['不统计', '计数', '求和', '平均', '最小', '最大']
     # 画布上的状态文案：没绑数据源 / 绑好了
-    UNBOUND_HINT = '未绑定数据源'
-    UNBOUND_TIP = '请在右侧数据源管理中配置绑定'
+    UNBOUND_HINT = '演示数据（未绑定数据源）'
     BOUND_HINT = '已登记数据源'
     # 点预览时可能出的两种提示
     BIND_NEED_TABLE_HINT = '请先选择数据源、Schema 和数据表'   # 连表都还没选
@@ -84,9 +83,8 @@ class FreeChartPage(FreeLayoutPage):
         self.widget = self.canvas_widgets().first
         # 图表左上角的标题文字
         self.widget_title = self.widget.locator('span.MuiTypography-caption').first
-        # 没绑数据源时画布上的两段占位文案
+        # 没绑数据源时画布上的状态文案
         self.widget_unbound_chip = self.widget.get_by_text(self.UNBOUND_HINT, exact=True)
-        self.widget_unbound_tip = self.widget.get_by_text(self.UNBOUND_TIP, exact=True)
         # 绑好之后画布上的状态标签，以及真正出图的那块 echarts 画布
         self.widget_bound_chip = self.widget.get_by_text(self.BOUND_HINT, exact=True)
         self.widget_canvas = self.widget.locator('canvas')
@@ -130,16 +128,23 @@ class FreeChartPage(FreeLayoutPage):
         调用方要么接着 choose 一项，要么自己 Escape 关掉。"""
         combobox = self.bind_field(label)
         combobox.click()
+        listbox = self.page.locator('[role="listbox"]:visible').last
         try:
-            self.page.get_by_role('option').first.wait_for(state='visible', timeout=timeout_ms)
+            listbox.wait_for(state='visible', timeout=timeout_ms)
+            listbox.get_by_role('option').first.wait_for(state='visible', timeout=timeout_ms)
         except Exception:
-            pass          # 这一级没有可选项，返回空列表让调用方处理
-        return combobox, self.page.get_by_role('option').all_inner_texts()
+            return combobox, []
+        return combobox, listbox.get_by_role('option').all_inner_texts()
 
     def bind_choose(self, label, name):
         """在对话框里某个下拉选中一项，并等下一级字段刷出来。"""
-        self.bind_field(label).click()
-        self.page.get_by_role('option', name=name, exact=True).click()
+        current = self.bind_field(label).inner_text().strip()
+        if current == name:
+            return
+        _, names = self.bind_options(label)
+        assert name in names, f'「{label}」当前选项里没有 {name!r}：{names}'
+        self.page.locator('[role="listbox"]:visible').last \
+            .get_by_role('option', name=name, exact=True).click()
         self.page.wait_for_timeout(1500)
 
     def canvas_fingerprint(self):
@@ -191,11 +196,21 @@ class FreeChartPage(FreeLayoutPage):
 
         _, schemas = self.bind_options('Schema')
         assert schemas, '「Schema」下拉里一个可选项都没有'
-        self.page.keyboard.press('Escape')
-        self.page.wait_for_timeout(400)
 
-        for schema in schemas:
-            self.bind_choose('Schema', schema)
+        # 当前环境的 public 没有可绑定表，而且这个 MUI 级联框在选中空
+        # Schema 后无法再次展开。把常见的空 public 放到最后，优先尝试业务 Schema。
+        schemas = [schema for schema in schemas if schema != 'public'] + \
+                  [schema for schema in schemas if schema == 'public']
+
+        for index, schema in enumerate(schemas):
+            # 第一次读取 Schema 选项时菜单已经打开，直接选；关闭后再次打开在
+            # 单 Schema 环境下偶尔拿不到选项。只有后续尝试才重新打开菜单。
+            if index == 0:
+                self.page.locator('[role="listbox"]:visible').last \
+                    .get_by_role('option', name=schema, exact=True).click()
+                self.page.wait_for_timeout(1500)
+            else:
+                self.bind_choose('Schema', schema)
             _, tables = self.bind_options('数据表')
             if tables:
                 chosen['Schema'] = schema

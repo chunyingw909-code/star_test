@@ -219,8 +219,11 @@ def test_column_sort(catalog_page):
 
     # 断言：两次点击把整个结果集完全颠倒
     assert order1 == list(reversed(order2)), f'两次排序不是互为倒序：{order1} / {order2}'
-    # 断言：其中一次是升序（那另一次即为降序）
-    assert sorted(order1) in (order1, order2), f'两次排序都不是升序：{order1} / {order2}'
+    # 空编码在后端按 NULLS FIRST/LAST 放在两端；只对非空编码验证字典序。
+    nonempty1 = [code for code in order1 if code]
+    nonempty2 = [code for code in order2 if code]
+    assert sorted(nonempty1) in (nonempty1, nonempty2), \
+        f'两次排序的非空编码都不是升序：{order1} / {order2}'
 
 
 # ==================== 分页 ====================

@@ -42,9 +42,7 @@ def assert_has_spinner(number_input):
 
 
 def _fmt(value, step):
-    """按 step 的精度把数值格式化成输入框里会显示的样子。"""
-    if float(step).is_integer():
-        return str(int(round(value)))
+    """把数值格式化成浏览器 number input 实际显示的样子。"""
     text = f'{value:.10f}'.rstrip('0').rstrip('.')
     return text or '0'
 

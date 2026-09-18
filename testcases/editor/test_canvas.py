@@ -14,17 +14,17 @@
 import allure
 from playwright.sync_api import expect
 
-from pages.editor.widget_catalog import LABELS
+from pages.editor.widget_catalog import ACTIVE_LABELS
 
 
 # ==================== 「添加组件」菜单 ====================
-# LABELS 是 pages/editor/widget_catalog.py 里「12 个内置组件」的唯一清单。
+# ACTIVE_LABELS 是 pages/editor/widget_catalog.py 里当前开放的 8 个组件清单。
 # 一条用例就够：点开菜单，把菜单里的项和这份清单做「完全一致」比对。
 # 这一条同时管住了三件事：数量对不对、每个该有的在不在、有没有多出来的。
 
 @allure.feature('界面编辑器')
 @allure.story('画布-添加组件菜单')
-@allure.title('"添加组件"菜单里的项和内置组件清单完全一致（12 个）')
+@allure.title('"添加组件"菜单里的项和当前开放组件清单完全一致（8 个）')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_add_component_menu_matches_catalog(free_layout_page):
     free_layout_page.add_component_button.click()
@@ -32,7 +32,7 @@ def test_add_component_menu_matches_catalog(free_layout_page):
 
     # add_menu_labels() 读的是菜单里每一项的显示名（每项文本是「显示名\n分类」，取第一行）
     actual = sorted(free_layout_page.add_menu_labels())
-    expected = sorted(LABELS)
+    expected = sorted(ACTIVE_LABELS)
     # 断言消息把「多出的」「缺的」分开列，失败时一眼看出差在哪
     assert actual == expected, (
         f'菜单和组件清单对不上：'

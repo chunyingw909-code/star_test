@@ -87,10 +87,12 @@ class FaultCatalogPage:
 
     def _settle(self):
         """等筛选 / 搜索 / 排序 / 翻页后表格稳定。重排瞬间会出现「编码列全空」的过渡态，
-        先等它填好再等稳定，否则 codes() 可能读到一串 ''。"""
+        先等真实数据或空态出现再等稳定。目录里可能合法存在空编码记录，不能要求每行
+        编码都非空，否则每次操作都会白等 3 秒。"""
         for _ in range(30):
             c = self.codes()
-            if c and all(c):
+            empty = self.empty_hint.count() > 0 and self.empty_hint.is_visible()
+            if (c and any(c)) or empty:
                 break
             self.page.wait_for_timeout(100)
         wait_until_stable(self.page, self.codes)

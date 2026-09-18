@@ -47,8 +47,12 @@ class FaultDetailPage:
     # ---------- 定位工厂（带参数，没法放 __init__）----------
 
     def header_field(self, value):
-        """头部某个字段（编码/名称/严重等级/分系统）的 locator——每个都是唯一 exact 文本。"""
-        return self.root.get_by_text(value, exact=True)
+        """头部某个字段（编码/名称/严重等级/分系统）的 locator。
+
+        关系图区域可能再次显示同一个编码/名称；详情头在 DOM 中排在前面，取精确文本
+        的首项，避免 strict mode 命中两处。严重等级和分系统是普通文本，不限定 heading。
+        """
+        return self.root.get_by_text(value, exact=True).first
 
     def tab(self, name):
         """某个子 tab（处置预案 / 定位规则 文字带 " (N)"，按子串匹配）。"""

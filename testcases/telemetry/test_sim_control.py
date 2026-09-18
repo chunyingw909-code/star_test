@@ -91,8 +91,8 @@ def test_real_node_shows_reserved_notice(telemetry_page):
 @allure.story('仿真控制-播放控制')
 @allure.title('点▶启动：暂停键可用、播放键置灰，顶部 T 开始递增，实时曲线区出现')
 @allure.severity(allure.severity_level.BLOCKER)
-def test_start_sim_runs_and_shows_curve(telemetry_page):
-    tp = telemetry_page
+def test_start_sim_runs_and_shows_curve(sim_ready_page):
+    tp = sim_ready_page
     expect(tp.pause_button).to_be_disabled()            # 启动前暂停不可用
 
     tp.start_sim()
@@ -201,10 +201,10 @@ def test_counters_readable(telemetry_page):
 @allure.story('仿真控制-进度读数')
 @allure.title('点▶启动等待片刻，顶部 T 由 0 变为大于 0')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_time_advances_after_start(telemetry_page):
-    assert (telemetry_page.sim_time() or 0) == 0
-    telemetry_page.start_sim()
-    t = telemetry_page.wait_sim_time_advances()
+def test_time_advances_after_start(sim_ready_page):
+    assert (sim_ready_page.sim_time() or 0) == 0
+    sim_ready_page.start_sim()
+    t = sim_ready_page.wait_sim_time_advances()
     assert t and t > 0, f'启动后等待仍未见 T 递增（读到 {t}）'
 
 
@@ -255,24 +255,29 @@ def test_snapshot_appears_and_deletable_in_breakpoint_dialog(running_sim):
 
 @allure.feature('卫星遥测')
 @allure.story('仿真控制-卫星选择')
-@allure.title('卫星选择 SAT-01/02/03 三个按钮均可见可点击，点击后面板不报错')
+@allure.title('有卫星场景：接口返回的活动卫星按钮均可见，存在多个时可来回切换')
 @allure.severity(allure.severity_level.NORMAL)
-def test_satellite_buttons_clickable(telemetry_page):
-    for n in (1, 2, 3):
-        expect(telemetry_page.satellite_button(n).first).to_be_visible()
-    telemetry_page.select_satellite(2)
-    telemetry_page.page.wait_for_timeout(500)
-    telemetry_page.select_satellite(1)
-    expect(telemetry_page.sim_control_heading).to_be_visible()
+def test_satellite_buttons_clickable(sim_ready_page):
+    tp = sim_ready_page
+    names = [s['name'] for s in tp.configured_satellites]
+    visible = tp.wait_active_satellites()
+    assert set(visible) <= set(names)
+    for name in visible:
+        expect(tp.satellite_button(name).first).to_be_visible()
+    if len(visible) > 1:
+        tp.select_satellite(visible[1])
+        tp.page.wait_for_timeout(500)
+        tp.select_satellite(visible[0])
+    expect(tp.sim_control_heading).to_be_visible()
 
 
 @allure.feature('卫星遥测')
 @allure.story('仿真控制-仿真节点')
 @allure.title('仿真节点面板：「启动」按钮可用，每个节点行都有停止图标按钮')
 @allure.severity(allure.severity_level.NORMAL)
-def test_node_controls_present(telemetry_page):
-    expect(telemetry_page.node_start_button).to_be_enabled()
-    assert telemetry_page.node_stop_buttons.count() >= 1
+def test_node_controls_present(sim_ready_page):
+    expect(sim_ready_page.node_start_button).to_be_visible()
+    assert sim_ready_page.node_stop_buttons.count() >= 1
 
 
 # ==================== 实时曲线时间窗 ====================

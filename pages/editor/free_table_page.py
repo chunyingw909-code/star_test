@@ -6,14 +6,8 @@ class FreeTablePage(FreeLayoutPage):
 
     没有通用样式那一组（上下左右边距 / 圆角 / 透明度），所以不 mixin CommonStyleMixin。
 
-    ⚠️ 「保存绑定」后的第一帧：取数请求的排序字段还没重算，卡在 "satellite"
-       （占位表头第三列「卫星」的内部字段名），真表没这列 → 后端报
-       「排序字段不存在...当前为模拟数据」，画布是 1 行占位。
-       只是这一帧的事：画面一重新渲染（点表头 / 切预览再切回 / ...）就正常了。
-       自动化跑得快会撞上，手动基本看不到。绑完 unstick_sort() 点一下表头推过去。
-
-    ⚠️ 表格默认（没绑数据源时）画布上是【占位表头】故障编码/等级/卫星/时间/状态 +
-       「未绑定数据源」+「暂无数据」+ 0 of 0，不是演示数据。
+    ⚠️ 表格默认（没绑数据源时）会展示 24 行演示数据，第一页 20 行，
+       状态文案为「演示数据（未绑定数据源）」。
 
     ⚠️ 「关闭分页」在小数据集上会显示全部行（不丢），但有 200 行上限，
        更大的表关掉分页也只渲染前 200 行。
@@ -22,7 +16,7 @@ class FreeTablePage(FreeLayoutPage):
     # 没绑数据源时画布上的占位表头
     PLACEHOLDER_HEADERS = ['故障编码', '等级', '卫星', '时间', '状态']
     # 画布上的状态标签
-    UNBOUND_HINT = '未绑定数据源'
+    UNBOUND_HINT = '演示数据（未绑定数据源）'
     BOUND_HINT = '已登记数据源'
     MOCK_HINT = '数据源不可用'
     # 绑定弹窗里的两种「没选全」提示
@@ -40,7 +34,7 @@ class FreeTablePage(FreeLayoutPage):
         self.prop_title = page.get_by_label('标题', exact=True)
         # 数字框（「每页行数」页面上另有个同名隐藏元素，只认 spinbutton 角色）
         self.prop_page_size = page.get_by_role('spinbutton', name='每页行数', exact=True)
-        self.prop_max_height = page.get_by_label('最大高度', exact=True)
+        self.prop_max_height = page.get_by_label('最大高度 (0=自适应)', exact=True)
         self.prop_refresh_interval = page.get_by_label('刷新间隔 (s)', exact=True)
         # 单击事件（共用用例集 ClickActionCases 要用这两个名字）
         self.prop_click_action = page.locator('.MuiFormControl-root', has_text='点击事件').get_by_role('combobox')
@@ -141,18 +135,23 @@ class FreeTablePage(FreeLayoutPage):
         combobox = self.bind_field(label)
         combobox.wait_for(state='visible')
         combobox.click()
+        listbox = self.page.locator('[role="listbox"]:visible').last
         try:
-            self.page.get_by_role('option').first.wait_for(state='visible', timeout=timeout_ms)
+            listbox.wait_for(state='visible', timeout=timeout_ms)
+            listbox.get_by_role('option').first.wait_for(state='visible', timeout=timeout_ms)
         except Exception:
-            pass
-        return combobox, self.page.get_by_role('option').all_inner_texts()
+            return combobox, []
+        return combobox, listbox.get_by_role('option').all_inner_texts()
 
     def bind_choose(self, label, name):
         """在绑定弹窗某个下拉选中一项，并等下一级刷出来。"""
-        cb = self.bind_field(label)
-        cb.wait_for(state='visible')
-        cb.click()
-        self.page.get_by_role('option', name=name, exact=True).click()
+        current = self.bind_field(label).inner_text().strip()
+        if current == name:
+            return
+        _, names = self.bind_options(label)
+        assert name in names, f'「{label}」当前选项里没有 {name!r}：{names}'
+        self.page.locator('[role="listbox"]:visible').last \
+            .get_by_role('option', name=name, exact=True).click()
         self.page.wait_for_timeout(2000)
 
     def bind_pick_table(self):
@@ -171,13 +170,23 @@ class FreeTablePage(FreeLayoutPage):
             self.bind_field('Schema').wait_for(state='visible', timeout=10000)
 
             _, schemas = self.bind_options('Schema')
-            self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(400)
             if not schemas:
                 continue
 
-            for schema in schemas:
-                self.bind_choose('Schema', schema)
+            # public 在当前环境为空；选中空 Schema 后组件无法再次展开，所以先试
+            # 业务 Schema，把 public 留作最后的兜底。
+            schemas = [schema for schema in schemas if schema != 'public'] + \
+                      [schema for schema in schemas if schema == 'public']
+
+            for index, schema in enumerate(schemas):
+                # bind_options 已把菜单保持在打开状态；首项直接点击，避免单一
+                # Schema 的下拉关闭后无法再次展开。后续项才重新打开下拉。
+                if index == 0:
+                    self.page.locator('[role="listbox"]:visible').last \
+                        .get_by_role('option', name=schema, exact=True).click()
+                    self.page.wait_for_timeout(1500)
+                else:
+                    self.bind_choose('Schema', schema)
                 _, tables = self.bind_options('数据表')
                 if tables:
                     self.page.get_by_role('option').first.click()
@@ -199,9 +208,7 @@ class FreeTablePage(FreeLayoutPage):
 
     def bind_first_available(self):
         """从头走到尾并保存：选表 → 全勾列 → 保存 → 等弹窗关掉。
-        返回 bind_pick_table 的结果。
-        注意：保存后画布因为硬编码排序 bug 会先落到「模拟数据」，
-        要真实数据得再 unstick_sort() 一下。"""
+        返回 bind_pick_table 的结果。"""
         chosen = self.bind_pick_table()
         self.check_all_bind_columns()
         self.bind_dialog_save.click()
@@ -210,13 +217,6 @@ class FreeTablePage(FreeLayoutPage):
         return chosen
 
     # ==================== 画布操作 ====================
-
-    def unstick_sort(self):
-        """点第一列的排序表头，把「保存绑定后第一帧」（排序字段还卡在 satellite）
-        推过去，让真实数据出来。点完等画布出现「已登记数据源」。"""
-        self.widget_sort_labels().first.click()
-        self.widget_bound_chip.wait_for(state='visible', timeout=15000)
-        self.page.wait_for_timeout(1000)
 
     def sort_by(self, header_name):
         """点某一列的排序表头。"""

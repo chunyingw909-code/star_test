@@ -9,11 +9,7 @@ from pages.editor.free_chart_page import FreeChartPage
 from pages.editor.free_gauge_page import FreeGaugePage
 from pages.editor.free_status_page import FreeStatusPage
 from pages.editor.free_indicator_page import FreeIndicatorPage
-from pages.editor.free_input_page import FreeInputPage
-from pages.editor.free_dropdown_page import FreeDropdownPage
 from pages.editor.free_table_page import FreeTablePage
-from pages.editor.free_number_page import FreeNumberPage
-from pages.editor.free_fault_graph_page import FreeFaultGraphPage
 from pages.editor.free_spacer_page import FreeSpacerPage
 from pages.editor.free_container_page import FreeContainerPage
 from pages.editor.plugin_page import PluginManager
@@ -75,7 +71,7 @@ def free_chart_bound(free_chart_page):
     return free_chart_page
 
 
-# 已经绑好数据源、点过排序表头（把「保存后第一帧」推过去）、真的在显示真实数据的表格。
+# 已经绑好数据源、正在显示真实数据的表格。
 # 绑定这一步本身在 test_free_table.py 里有独立用例逐步断言，
 # 这个 fixture 只是把「有真实数据」这个场景固定下来给别的用例复用。
 @pytest.fixture
@@ -83,7 +79,6 @@ def free_table_bound(free_table_page):
     free_table_page.click_widget()
     free_table_page.open_bind_dialog()
     free_table_page.bound_with = free_table_page.bind_first_available()
-    free_table_page.unstick_sort()
     return free_table_page
 
 
@@ -111,22 +106,6 @@ def free_indicator_page(free_layout_page):
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeIndicatorPage(free_layout_page.page)
 
-# 自由-输入框
-@pytest.fixture
-def free_input_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('输入框').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeInputPage(free_layout_page.page)
-
-# 自由-下拉框
-@pytest.fixture
-def free_dropdown_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('下拉框').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeDropdownPage(free_layout_page.page)
-
 # 自由-表格
 @pytest.fixture
 def free_table_page(free_layout_page):
@@ -134,22 +113,6 @@ def free_table_page(free_layout_page):
     free_layout_page.component_item('表格').click()
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeTablePage(free_layout_page.page)
-
-# 自由-数值输入
-@pytest.fixture
-def free_number_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('数值输入').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeNumberPage(free_layout_page.page)
-
-# 自由-故障关系图
-@pytest.fixture
-def free_fault_graph_page(free_layout_page):
-    free_layout_page.add_component_button.click()
-    free_layout_page.component_item('故障关系图').click()
-    free_layout_page.canvas_widgets().first.wait_for(state='visible')
-    return FreeFaultGraphPage(free_layout_page.page)
 
 # 自由-容器
 @pytest.fixture
@@ -166,21 +129,6 @@ def free_spacer_page(free_layout_page):
     free_layout_page.component_item('占位').click()
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeSpacerPage(free_layout_page.page)
-
-
-# 从后端取真实故障 {id, faultCode, ...} 列表，给故障关系图"绑定故障"的用例用。
-# 组件的"故障 ID"要的是 UUID（id），不是 faultCode（AOCS-001 那种）。
-@pytest.fixture(scope='session')
-def faults():
-    url = read_yaml('config/config.yaml')['url'].rstrip('/') + '/api/fault/list'
-    try:
-        resp = requests.get(url, timeout=10, proxies={'http': None, 'https': None})
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        pytest.skip(f'故障列表接口不可达（{url}）：{e}')
-    data = resp.json().get('data') or {}
-    items = data.get('list') if isinstance(data, dict) else data
-    return [it for it in (items or []) if it.get('id')]
 
 
 # 从后端接口取真实数据源 {类型: id}，给表格"绑定真实数据源"的用例用。
@@ -244,5 +192,10 @@ def free_text_saved_cleanup(free_text_page):
         ed.page.once('dialog', lambda d: d.accept())
         ed.new_button.click()
         ed.page.wait_for_timeout(1200)
+        # 「新建」只清当前画布，不再删除后端已保存布局；把空画布覆盖保存，
+        # 避免下一条用例刷新时重新加载本用例的组件。
+        ed.layout_name_input.fill('AUTOTEST-SAVE')
+        free_text_page.save_button.first.click()
+        ed.page.wait_for_timeout(800)
     except Exception as e:
         print(f'[free_text_saved_cleanup] 清理失败: {e}')

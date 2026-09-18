@@ -1,11 +1,7 @@
 """容器组件 —— 能往里嵌套其它组件的盒子。
 
 ⚠️ 以下属性【故意不写用例】，系统这边不生效，写了也是白写：
-      列数       —— 已提缺陷、开发未修。不管填几，容器内一行永远只放得下
-                    一个组件，且该组件固定占容器宽度的一半
-      间距 (px)  —— 改了画布没有任何变化
-      最小高度   —— 同上，不生效
-      children   —— 内部字段，不是给人填的
+      最小高度   —— 不生效
    等开发修好再补，补的位置就在本文件里。
 
 本文件覆盖两块：
@@ -47,7 +43,7 @@ def test_container_default_properties(free_container_page):
     expect(cp.prop_bg_color).to_have_value('rgba(255,255,255,0.02)')
     expect(cp.prop_border_color).to_have_value('rgba(255,255,255,0.15)')
     expect(cp.prop_padding).to_have_value('8')
-    # 画布断言：内边距 8 个单位 = 64px
+    # 画布断言：内边距现在直接按 px 生效
     expect(cp.widget_body).to_have_css('padding', f'{8 * cp.PADDING_UNIT_PX}px')
 
 
@@ -81,7 +77,7 @@ def test_container_modify_title(free_container_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-容器组件')
-@allure.title('清空标题，画布标签也空掉')
+@allure.title('清空标题，画布标题节点消失')
 @allure.severity(allure.severity_level.NORMAL)
 def test_container_clear_title(free_container_page):
     cp = free_container_page
@@ -89,8 +85,8 @@ def test_container_clear_title(free_container_page):
     cp.prop_title.fill('')
     # 右侧断言
     expect(cp.prop_title).to_have_value('')
-    # 画布断言
-    expect(cp.widget_title).to_have_text('')
+    # 画布断言：空标题不保留空的 caption 节点
+    expect(cp.widget_title).to_have_count(0)
 
 
 # ==================== 背景色 ====================
@@ -147,12 +143,12 @@ def test_container_border_color(free_container_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-容器组件')
-@allure.title('修改内边距，画布按 1 单位 = 8px 换算')
+@allure.title('修改内边距，画布按像素值同步')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_container_padding(free_container_page):
     cp = free_container_page
     cp.click_widget()
-    # 这个框填的是间距单位不是像素，逐档核对换算关系
+    # 这个框现在直接使用像素值，逐档核对
     for value in ['0', '1', '2', '16']:
         cp.prop_padding.fill(value)
         # 右侧断言

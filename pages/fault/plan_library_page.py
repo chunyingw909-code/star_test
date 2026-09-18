@@ -38,6 +38,7 @@ class FaultPlanLibraryPage:
         卡片文本前三行固定是 预案名 / 关联故障编码 / 关联故障名。
         用于「点进去前记下这张卡是什么，再和详情/搜索结果比对」（仿 FaultDetailPage.opened）。"""
         lines = [t.strip() for t in self.cards().nth(index).inner_text().splitlines() if t.strip()]
+        assert len(lines) >= 3, f'第 {index} 张预案卡字段不足 3 行：{lines}'
         return {'plan': lines[0], 'fault_code': lines[1], 'fault_name': lines[2]}
 
     # ---------- 列表：动作（给 test_plan_library_search / _open_detail 用）----------

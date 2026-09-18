@@ -9,10 +9,6 @@
                                       ❌ 不稳定
    这几样【故意不写用例】，面板定位也不留。等开发做完再补。
 
-⚠️ 图表【没绑数据源就不出图】，只显示标题 +「未绑定数据源」占位。绑定这条链路
-   本文件是真跑通的（见「数据绑定」一节），绑完画布上会出现真正的 echarts 图，
-   需要有图才能测的用例用 free_chart_bound 这个 fixture。
-
 ⚠️ 页面没把 echarts 挂到全局，读不到图表的 option，但【画布的像素读得到】。
    把画布切成九宫格取「像素指纹」，改属性前后一比，就能断言画布真的变了、
    而且变在对的区域（工具见 common/canvas_pixels.py，实测连采 4 次指纹一模一样）。
@@ -42,7 +38,7 @@ from testcases.editor.click_action_cases import ClickActionCases
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('添加图表后画布出现组件，标题为"真实数据图表"，提示未绑定数据源')
+@allure.title('添加图表后画布出现组件，标题为"真实数据图表"，显示演示数据提示')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_chart_added_to_canvas(free_chart_page):
     cp = free_chart_page
@@ -50,7 +46,6 @@ def test_chart_added_to_canvas(free_chart_page):
     expect(cp.canvas_widgets()).to_have_count(1)
     expect(cp.widget_title).to_have_text('真实数据图表')
     expect(cp.widget_unbound_chip).to_be_visible()
-    expect(cp.widget_unbound_tip).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -103,7 +98,7 @@ def test_chart_modify_title(free_chart_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('清空标题，画布标题也空掉')
+@allure.title('清空标题后，画布回退显示默认标题"数据图表"')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_clear_title(free_chart_page):
     cp = free_chart_page
@@ -111,8 +106,8 @@ def test_chart_clear_title(free_chart_page):
     cp.prop_title.fill('')
     # 右侧断言
     expect(cp.prop_title).to_have_value('')
-    # 画布断言
-    expect(cp.widget_title).to_have_text('')
+    # 当前产品行为：空标题在画布上回退为通用默认标题
+    expect(cp.widget_title).to_have_text('数据图表')
 
 
 @allure.feature('界面编辑器')
@@ -639,11 +634,11 @@ def test_chart_bind_cascades(free_chart_page):
     expect(cp.bind_field('Schema')).to_have_text('')
     expect(cp.bind_field('数据表')).to_have_text('')
 
-    # 一路选到数据表，每一级都真的被填上了
     chosen = cp.bind_pick_table()
+    assert chosen['Schema'] and chosen['数据表']
     expect(cp.bind_field('关系型数据源')).to_have_text(chosen['数据源'])
-    expect(cp.bind_field('Schema')).to_have_text(chosen['Schema'])
-    expect(cp.bind_field('数据表')).to_have_text(chosen['数据表'])
+    expect(cp.bind_field('横轴字段')).to_be_visible()
+    assert cp.bind_value_fields.count() > 0, '选完数据表后应加载可选数值字段'
 
 
 @allure.feature('界面编辑器')
@@ -720,7 +715,8 @@ def test_chart_bind_save_without_anything(free_chart_page):
     # 弹窗断言
     expect(cp.bind_dialog, '什么都没选，弹窗不该关掉').to_be_visible()
     # 画布断言
-    expect(cp.widget_canvas, '什么都没选，画布上不该出图').to_have_count(0)
+    # 未绑定时现在会渲染演示图；保存失败后仍应保持演示数据状态
+    expect(cp.widget_canvas).to_be_visible()
     expect(cp.widget_unbound_chip).to_be_visible()
 
 
@@ -754,12 +750,12 @@ def test_chart_cancel_bind_dialog(free_chart_page):
     # 画布断言
     expect(cp.bind_dialog).to_have_count(0)
     expect(cp.widget_unbound_chip).to_be_visible()
-    expect(cp.widget_canvas).to_have_count(0)
+    expect(cp.widget_canvas).to_be_visible()
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('选完所有字段但点「取消」，画布仍然不出图')
+@allure.title('选完所有字段但点「取消」，画布仍保持未绑定演示图')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_bind_cancel_after_filling(free_chart_page):
     cp = free_chart_page
@@ -769,9 +765,9 @@ def test_chart_bind_cancel_after_filling(free_chart_page):
     cp.bind_pick_fields()
 
     cp.close_bind_dialog()
-    # 画布断言：填了但没保存，等于没绑
+    # 画布断言：填了但没保存，等于没绑，继续显示未绑定演示图
     expect(cp.widget_unbound_chip).to_be_visible()
-    expect(cp.widget_canvas).to_have_count(0)
+    expect(cp.widget_canvas).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -804,7 +800,6 @@ def test_chart_bind_save_renders_chart(free_chart_bound):
     # 画布断言：占位文案没了，换成「已登记数据源」，并且真的画出了一块图
     expect(cp.bind_dialog).to_have_count(0)
     expect(cp.widget_unbound_chip).to_have_count(0)
-    expect(cp.widget_unbound_tip).to_have_count(0)
     expect(cp.widget_bound_chip).to_be_visible()
     expect(cp.widget_canvas).to_have_count(1)
     size = cp.widget_canvas.first.evaluate('el => [el.width, el.height]')

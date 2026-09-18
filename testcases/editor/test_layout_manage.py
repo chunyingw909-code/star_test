@@ -26,16 +26,20 @@ TPL_NAMES = list(TemplateDialog.TEMPLATES)
 
 
 def _select_template_text_widget(page):
-    """点中模板里那个（唯一带 <p> 的）文本组件，直到右侧出现「内容」框。
-    模板会被包进容器，最外层组件也"含 p"，所以逐个试。
+    """逐个点击模板文本及其祖先，直到右侧出现「内容」框。
+
+    模板组件可能嵌在容器内，事件绑定在文本外层而不是 <p> 本身。
     """
-    candidates = page.locator('.react-grid-item').filter(has=page.locator('p'))
+    candidates = page.locator('.react-grid-item p')
     for i in range(candidates.count()):
-        candidates.nth(i).click(force=True)
-        page.wait_for_timeout(400)
-        content = page.get_by_label('内容')
-        if content.count() and content.first.is_visible():
-            return
+        target = candidates.nth(i)
+        for _ in range(6):
+            target.click(force=True)
+            page.wait_for_timeout(250)
+            content = page.get_by_label('内容')
+            if content.count() and content.first.is_visible():
+                return
+            target = target.locator('xpath=..')
     raise AssertionError('模板里没找到可编辑的文本组件')
 
 
@@ -102,11 +106,12 @@ def test_new_confirm_clears_template(free_layout_page):
     page = free_layout_page.page
     ed = free_layout_page.editor
     TemplateDialog(page).open().apply('综合遥测总览大屏')
-    expect(page.get_by_text('卫星星座综合遥测大屏')).to_be_visible()
+    marker = TemplateDialog.TEMPLATES['综合遥测总览大屏']
+    expect(page.get_by_text(marker)).to_be_visible()
 
     ed.click_new_and_confirm()
     expect(ed.all_widgets()).to_have_count(0)
-    expect(page.get_by_text('卫星星座综合遥测大屏')).to_have_count(0)
+    expect(page.get_by_text(marker)).to_have_count(0)
 
 
 # ==================== 保存 ====================
@@ -166,9 +171,9 @@ def test_unsaved_lost_before_first_save(free_text_page):
 
 @allure.feature('界面编辑器')
 @allure.story('布局管理-保存')
-@allure.title('保存后「新建」+确定，刷新页面组件也不再出现')
+@allure.title('保存后「新建」只清当前画布，刷新会恢复已保存布局')
 @allure.severity(allure.severity_level.NORMAL)
-def test_new_removes_saved_layout(free_text_saved_cleanup):
+def test_new_keeps_saved_layout(free_text_saved_cleanup):
     tp = free_text_saved_cleanup
     ed = tp.editor
     tp.click_widget()
@@ -180,14 +185,14 @@ def test_new_removes_saved_layout(free_text_saved_cleanup):
     expect(ed.all_widgets()).to_have_count(0)
 
     ed.reload_editor()
-    expect(tp.page.get_by_text('NEW-REMOVES-A')).to_have_count(0)
+    expect(tp.page.get_by_text('NEW-REMOVES-A')).to_be_visible()
 
 
 # ==================== 模板 · 弹框本身 ====================
 
 @allure.feature('界面编辑器')
 @allure.story('布局管理-模板')
-@allure.title('点「模板」打开「选择页面模板」弹框：3 个模板 + 保存当前 + 取消')
+@allure.title('点「模板」打开「选择页面模板」弹框：内置模板 + 保存当前 + 取消')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_template_dialog_opens(free_layout_page):
     td = TemplateDialog(free_layout_page.page).open()
@@ -210,28 +215,6 @@ def test_template_dialog_lists_all(free_layout_page, name):
 
 @allure.feature('界面编辑器')
 @allure.story('布局管理-模板')
-@allure.title('[现状] 点「保存当前为模板」没有任何反应')
-@allure.severity(allure.severity_level.NORMAL)
-def test_template_save_current_button(free_text_page):
-    # ⚠️ 现状记录（非期望）：画布上放了组件、点「保存当前为模板」，
-    #    没有弹出命名框、没有提示、弹框也不关，什么都没发生。
-    # TODO(bug) 期望：点它应弹出一个填「模板名称」的框 —— 可取消 / 可确定，
-    #    确定后提示「保存成功」，刷新页面再点「模板」能看到这个新模板，
-    #    能选中应用、也能删除。开发做好后按这个流程补用例。已提 bug。
-    td = TemplateDialog(free_text_page.page).open()
-    expect(td.save_current_button).to_be_visible()
-
-    td.save_current_button.click()
-    free_text_page.page.wait_for_timeout(1000)
-    # 现状：还是那个「选择页面模板」弹框，没有命名框、没有 alert
-    expect(td.title).to_be_visible()
-    expect(td.dialog.locator('input')).to_have_count(0)
-    expect(free_text_page.page.get_by_role('alert').filter(has_text='成功')).to_have_count(0)
-    td.cancel()
-
-
-@allure.feature('界面编辑器')
-@allure.story('布局管理-模板')
 @allure.title('点「取消」关闭弹框，画布不变')
 @allure.severity(allure.severity_level.NORMAL)
 def test_template_cancel(free_text_page):
@@ -241,6 +224,97 @@ def test_template_cancel(free_text_page):
     td.cancel()
     expect(td.page.get_by_role('dialog')).to_have_count(0)
     expect(free_text_page.page.get_by_text('TPL-CANCEL')).to_be_visible()
+
+
+# ==================== 模板 · 保存当前 / 套用 / 删除 ====================
+# 「保存当前为模板」弹的是浏览器原生 prompt（不是 MUI 框）：
+#   message=「模板名称:」，默认值「新建面板」。
+# 自定义模板卡片右上角 CloseIcon 删除时弹原生 confirm「确定删除此模板？」。
+
+CUSTOM_TPL_NAME = 'AUTOTEST-CUSTOM-TPL'
+CUSTOM_TPL_MARKER = 'AUTOTEST-CUSTOM-MARKER'
+
+
+@pytest.fixture
+def custom_template_cleanup(free_text_page):
+    """保存自定义模板的用例用：teardown 里把残留的自定义模板删掉，避免污染列表。"""
+    yield free_text_page
+    page = free_text_page.page
+    try:
+        td = TemplateDialog(page)
+        if page.get_by_role('dialog').count() == 0:
+            td.open()
+        if td.card(CUSTOM_TPL_NAME).count():
+            td.click_delete_and_confirm(CUSTOM_TPL_NAME)
+            page.wait_for_timeout(800)
+        if page.get_by_role('dialog').count():
+            td.cancel()
+    except Exception as e:
+        print(f'[custom_template_cleanup] 清理失败: {e}')
+
+
+@allure.feature('界面编辑器')
+@allure.story('布局管理-模板')
+@allure.title('「保存当前为模板」弹原生命名框，点取消不保存')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_template_save_current_cancel(free_text_page):
+    page = free_text_page.page
+    free_text_page.click_widget()
+    free_text_page.prop_content.fill(CUSTOM_TPL_MARKER)
+
+    seen = {}
+    page.once('dialog', lambda d: (
+        seen.update(type=d.type, message=d.message, default=d.default_value),
+        d.dismiss(),
+    ))
+    td = TemplateDialog(page).open()
+    td.save_current_button.click()
+    page.wait_for_timeout(800)
+
+    assert seen.get('type') == 'prompt'
+    assert seen.get('message') == TemplateDialog.PROMPT_MESSAGE
+    assert seen.get('default') == TemplateDialog.PROMPT_DEFAULT
+    expect(td.card(CUSTOM_TPL_NAME)).to_have_count(0)
+    expect(td.toast('已保存为模板')).to_have_count(0)
+    td.cancel()
+
+
+@allure.feature('界面编辑器')
+@allure.story('布局管理-模板')
+@allure.title('「保存当前为模板」确定后提示成功，列表出现该模板，可套用、可删除')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_template_save_current_button(custom_template_cleanup):
+    tp = custom_template_cleanup
+    page = tp.page
+    tp.click_widget()
+    tp.prop_content.fill(CUSTOM_TPL_MARKER)
+
+    # —— 保存 ——
+    td = TemplateDialog(page).open()
+    td.click_save_current_and_confirm(CUSTOM_TPL_NAME)
+    expect(td.toast(f'已保存为模板"{CUSTOM_TPL_NAME}"')).to_be_visible()
+    expect(td.card(CUSTOM_TPL_NAME)).to_be_visible()
+    expect(td.card(CUSTOM_TPL_NAME)).to_contain_text(TemplateDialog.CUSTOM_CAPTION)
+
+    # —— 套用：先关弹框、清画布，再打开套用刚存的模板 ——
+    td.cancel()
+    EditorPage(page).click_new_and_confirm()
+    expect(EditorPage(page).all_widgets()).to_have_count(0)
+
+    td.open().apply(CUSTOM_TPL_NAME)
+    expect(page.get_by_text(CUSTOM_TPL_MARKER)).to_be_visible()
+
+    # —— 删除：取消保留 / 确定移除 ——
+    td.open()
+    expect(td.card(CUSTOM_TPL_NAME)).to_be_visible()
+    td.click_delete_and_cancel(CUSTOM_TPL_NAME)
+    page.wait_for_timeout(500)
+    expect(td.card(CUSTOM_TPL_NAME)).to_be_visible()
+
+    td.click_delete_and_confirm(CUSTOM_TPL_NAME)
+    expect(td.toast('模板已删除')).to_be_visible()
+    expect(td.card(CUSTOM_TPL_NAME)).to_have_count(0)
+    td.cancel()
 
 
 # ==================== 模板 · 应用 ====================
@@ -270,7 +344,7 @@ def test_apply_template_overwrites_existing(free_text_page):
 
     TemplateDialog(page).open().apply('综合遥测总览大屏')
     expect(page.get_by_text('TPL-OVERWRITE')).to_have_count(0)
-    expect(page.get_by_text('卫星星座综合遥测大屏')).to_be_visible()
+    expect(page.get_by_text(TemplateDialog.TEMPLATES['综合遥测总览大屏'])).to_be_visible()
 
 
 @allure.feature('界面编辑器')
@@ -281,11 +355,13 @@ def test_switch_template_replaces(free_layout_page):
     page = free_layout_page.page
     td = TemplateDialog(page)
     td.open().apply('综合遥测总览大屏')
-    expect(page.get_by_text('卫星星座综合遥测大屏')).to_be_visible()
+    first_marker = TemplateDialog.TEMPLATES['综合遥测总览大屏']
+    second_marker = TemplateDialog.TEMPLATES['故障研判与应急面板']
+    expect(page.get_by_text(first_marker)).to_be_visible()
 
-    td.open().apply('紧凑型场景配置表单')
-    expect(page.get_by_text('新建数字验证仿真任务')).to_be_visible()
-    expect(page.get_by_text('卫星星座综合遥测大屏')).to_have_count(0)
+    td.open().apply('故障研判与应急面板')
+    expect(page.get_by_text(second_marker)).to_be_visible()
+    expect(page.get_by_text(first_marker)).to_have_count(0)
 
 
 # ==================== 模板 · 内容 ====================

@@ -9,8 +9,8 @@ class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
     系统这边不生效，用例不写，所以这里也不留定位，原因见容器的测试文件开头。
     """
 
-    # 「内边距」填的是 MUI 间距单位，不是像素：填 1 画布上是 8px，默认 8 就是 64px
-    PADDING_UNIT_PX = 8
+    # 「内边距」现在直接按像素生效：填 1 画布上就是 1px。
+    PADDING_UNIT_PX = 1
 
     def __init__(self, page):
         super().__init__(page)

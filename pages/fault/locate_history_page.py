@@ -16,7 +16,8 @@ class FaultLocateHistoryPage:
     对应用例：testcases/fault/test_fault_locate_history.py
     """
 
-    STATUSES = ('命中', '未命中')
+    STATUSES = ('命中', '多命中', '未命中')
+    MATCHED_STATUSES = ('命中', '多命中')
     SEVERITIES = ('I', 'II', 'III', 'IV')
     FEEDBACK_DONE = ('已确认', '误报')          # 已反馈行反馈列 Chip 的文字
     BLANKS = ('', '-')                          # 未命中行 编码/故障 的占位表现

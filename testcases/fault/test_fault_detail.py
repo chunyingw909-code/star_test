@@ -129,8 +129,7 @@ def test_graph_node_click_detail(fault_detail_page):
     # 断言：没点节点时没有详情卡
     expect(d.graph_detail_card).to_have_count(0)
 
-    if not d.click_a_node():
-        pytest.skip('这条故障的关系图里没点到可选节点')
+    assert d.click_a_node(), '关系图已渲染，但扫描预期节点位置仍无法点出详情卡'
     # 断言：点中节点 → 出现 1 张详情卡
     expect(d.graph_detail_card).to_have_count(1)
     # 断言：详情卡带节点类别（图例里的某个词）
@@ -149,14 +148,13 @@ def test_graph_detail_card_dismiss(fault_detail_page):
     d = fault_detail_page
     d.open_tab('关系图')
 
-    if not d.click_a_node():
-        pytest.skip('这条故障的关系图里没点到可选节点')
+    assert d.click_a_node(), '关系图已渲染，但扫描预期节点位置仍无法点出详情卡'
     expect(d.graph_detail_card).to_have_count(1)
     d.graph_detail_close.click()
     # 断言：点 × 详情卡关闭
     expect(d.graph_detail_card).to_have_count(0)
 
-    d.click_a_node()
+    assert d.click_a_node(), '关闭详情卡后无法再次选中关系图节点'
     expect(d.graph_detail_card).to_have_count(1)
     d.click_graph_blank()
     # 断言：点画布空白处详情卡也关闭

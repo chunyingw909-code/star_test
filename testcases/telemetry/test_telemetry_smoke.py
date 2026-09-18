@@ -102,12 +102,16 @@ def test_telemetry_node_mode_toggle(telemetry_page):
 
 @allure.feature('卫星遥测')
 @allure.story('冒烟')
-@allure.title('点「重置」有响应（弹出提示，不报错不白屏）')
+@allure.title('切到 4x 后点「重置」，速度、时间和进度恢复初始值')
 @allure.severity(allure.severity_level.NORMAL)
 def test_telemetry_reset_responds(telemetry_page):
+    telemetry_page.set_speed('4x')
+    assert telemetry_page.current_speed() == '4x'
     telemetry_page.reset_button.click()
-    expect(telemetry_page.snackbar).to_be_visible()
-    # 面板还在（没被点崩）
+    expect(telemetry_page.speed_label).to_contain_text('1x')
+    assert telemetry_page.speed_is_active('1x')
+    assert (telemetry_page.sim_time() or 0) == 0
+    assert (telemetry_page.progress_percent() or 0) == 0
     expect(telemetry_page.sim_control_heading).to_be_visible()
 
 

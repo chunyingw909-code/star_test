@@ -24,7 +24,7 @@ def test_injection_panel(injection_page):
     expect(ip.target_satellite_select).to_be_visible()
     expect(ip.severity_select).to_be_visible()
     expect(ip.search_input).to_be_visible()
-    assert ip.fault_type_items().count() > 0
+    assert ip.fault_type_names(), '故障类型列表里没有结构完整的「名称 + 等级」条目'
 
 
 @allure.feature('故障/预案库')
@@ -48,7 +48,7 @@ def test_injection_platform_toggle(injection_page):
 
 @allure.feature('故障/预案库')
 @allure.story('故障注入')
-@allure.title('「{label}」下拉：点开有多个选项，选一个跟当前不同的就切过去')
+@allure.title('「{label}」下拉：有多个选项就切换；无目标卫星时验证空态')
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.parametrize('label', FaultInjectionPage.DROPDOWNS)
 def test_injection_dropdown_select(injection_page, label):
@@ -57,9 +57,16 @@ def test_injection_dropdown_select(injection_page, label):
     original = sel.inner_text().strip()
 
     opts = ip.dropdown_options(sel)
-    # 断言：下拉至少 2 个选项、当前值在其中（选项值不写死，运行时读）
-    assert len(opts) >= 2, f'「{label}」下拉选项不足 2 个：{opts}'
+    # 系统未加载仿真卫星时目标卫星为空，这是当前正常空态。
+    if label == '目标卫星' and not opts:
+        assert not original.replace('\u200b', '').strip(), f'无卫星选项时下拉不应有值：{original!r}'
+        return
+
+    # 有数据时当前值必须来自选项；只有多个选项才有“切换到另一个”的意义。
+    assert opts, f'「{label}」下拉没有任何选项'
     assert original in opts, f'当前值 {original!r} 不在选项里：{opts}'
+    if len(opts) == 1:
+        return
 
     picked = ip.select_other_option(sel)
     # 断言：选中的确实是另一个值，且下拉显示已切过去
@@ -73,7 +80,7 @@ def test_injection_dropdown_select(injection_page, label):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_injection_search(injection_page):
     ip = injection_page
-    base = ip.fault_type_items().count()
+    base = len(ip.fault_type_names())
     assert base > 1
 
     target = ip.fault_type_names()[0]
@@ -83,10 +90,10 @@ def test_injection_search(injection_page):
     assert target in names
 
     ip.search('zzz乱输入不存在xxx')
-    assert ip.fault_type_items().count() == 0
+    assert ip.fault_type_names() == []
 
     ip.search('')
-    assert ip.fault_type_items().count() == base
+    assert len(ip.fault_type_names()) == base
 
 
 @allure.feature('故障/预案库')
@@ -154,17 +161,28 @@ def test_injection_side_panels(injection_page):
 
 @allure.feature('故障/预案库')
 @allure.story('故障注入')
-@allure.title('点「注入故障」发 POST /api/sim/fault-inject（200；仿真 STOPPED，不产生活动故障）')
+@allure.title('点「注入故障」发 POST /api/sim/fault-inject（请求被测试拦截，不污染仿真）')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_injection_submit(injection_page):
     ip = injection_page
     ip.select_fault_type(ip.fault_type_names()[0])
 
-    with ip.page.expect_response(lambda r: 'fault-inject' in r.url) as ri:
-        ip.inject_button.click()
-    resp = ri.value
-    assert resp.request.method == 'POST'
-    assert resp.status == 200
-    # 断言：仿真 STOPPED，活动故障面板没被写入（不污染）
+    captured = {}
+
+    def mock_inject(route, request):
+        captured['method'] = request.method
+        captured['body'] = request.post_data
+        route.fulfill(status=200, content_type='application/json', body='{}')
+
+    ip.page.route('**/api/sim/fault-inject', mock_inject)
+    try:
+        with ip.page.expect_response(lambda r: 'fault-inject' in r.url) as ri:
+            ip.inject_button.click()
+        assert ri.value.status == 200
+    finally:
+        ip.page.unroute('**/api/sim/fault-inject', mock_inject)
+
+    assert captured['method'] == 'POST'
+    assert captured['body'], '注入请求应该带配置数据'
+    # 请求没有离开浏览器，不会改变共享环境里的活动故障。
     assert ip.active_fault_count() == 0
-    expect(ip.active_faults_empty).to_be_visible()

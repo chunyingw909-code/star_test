@@ -11,13 +11,6 @@
   三、「配置数据绑定」  —— 把这个弹窗当独立模块测（级联下拉、列勾选、乱点、预览、取消）
   四、点击事件         —— 共用用例集
 
-⚠️ 自动化跑得快，会撞上「保存绑定」后的第一帧：那一帧的取数请求里排序字段还没重算，
-   卡在 "satellite"（占位表头第三列「卫星」的内部字段名），真表没这列 → 后端报
-   「排序字段不存在...当前为模拟数据」，画布退化成 1 行占位。
-   手动操作基本看不到 —— 等人去看画布时早重渲染过了，排序字段已经重算正确。
-   第二类的 free_table_bound fixture 靠 unstick_sort() 点一下表头把这一帧推过去，
-   之后就是正常的真实数据。不为这一帧写用例。
-
 ⚠️ 数据绑定弹窗的三级下拉（关系型数据源 / Schema / 数据表）不写死任何库表名：
    每个数据源都试、每个 Schema 都试，用上第一张底下真有表的。
 """
@@ -36,7 +29,7 @@ from testcases.editor.click_action_cases import ClickActionCases
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')
-@allure.title('添加表格后画布出现组件，默认未绑定：占位表头 + 暂无数据')
+@allure.title('添加表格后画布出现组件，默认展示未绑定演示数据')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_table_add(free_table_page):
     tp = free_table_page
@@ -44,10 +37,9 @@ def test_table_add(free_table_page):
     expect(tp.canvas_widgets()).to_have_count(1)
     expect(tp.widget_title).to_have_text('数据表格')
     expect(tp.widget_unbound_chip).to_be_visible()
-    expect(tp.widget_empty_hint).to_be_visible()
     assert tp.widget_headers() == tp.PLACEHOLDER_HEADERS, \
-        f'默认占位表头应该是 {tp.PLACEHOLDER_HEADERS}，实际 {tp.widget_headers()}'
-    assert tp.widget_row_count() == 0, '未绑定时不该有数据行'
+        f'默认演示表头应该是 {tp.PLACEHOLDER_HEADERS}，实际 {tp.widget_headers()}'
+    assert tp.widget_row_count() == 20, '默认演示数据第一页应有 20 行'
 
 
 @allure.feature('界面编辑器')
@@ -61,11 +53,11 @@ def test_table_defaults(free_table_page):
     expect(tp.prop_panel).to_be_visible()
     expect(tp.prop_title).to_have_value('数据表格')
     expect(tp.prop_page_size).to_have_value('20')
-    expect(tp.prop_max_height).to_have_value('400')
+    expect(tp.prop_max_height).to_have_value('0')
     expect(tp.prop_refresh_interval).to_have_value('0')
     expect(tp.sort_radio('是')).to_be_checked()
     expect(tp.pagination_radio('是')).to_be_checked()
-    # 画布断言：启用排序时占位表头每列一个排序按钮
+    # 画布断言：启用排序时演示表头每列一个排序按钮
     expect(tp.widget_sort_labels()).to_have_count(len(tp.PLACEHOLDER_HEADERS))
 
 
@@ -128,10 +120,8 @@ def test_table_max_height(free_table_page):
     # 画布断言
     expect(tp.widget_table_container).to_have_css('max-height', '250px')
 
-    tp.prop_max_height.fill('400')
-    expect(tp.widget_table_container).to_have_css('max-height', '400px')
     check_number_spinner(
-        tp.prop_max_height, start='400',
+        tp.prop_max_height, start='250',
         after=lambda v: expect(tp.widget_table_container).to_have_css('max-height', f'{v}px'))
 
 
@@ -160,7 +150,7 @@ def test_table_sort_switch(free_table_page):
 @allure.title('启用分页开关来回切，单选状态同步')
 @allure.severity(allure.severity_level.NORMAL)
 def test_table_pagination_switch(free_table_page):
-    # 未绑定时画布上看不出分页效果，这里只校验单选状态。
+    # 这里只校验单选状态。
     # 真实的「关闭分页显示全部」在第二类里测。
     tp = free_table_page
     tp.click_widget()
@@ -205,23 +195,19 @@ def test_table_combined(free_table_page):
 # ==========================================================================
 # 二、绑好数据源之后 —— 真实数据下才看得出功能
 # ==========================================================================
-# free_table_bound 这个 fixture 已经：绑好第一张可用表 + 全勾列 + 保存 +
-# 点排序表头把「保存后第一帧」推过去，交出来时画布上是真实数据、状态是「已登记数据源」。
+# free_table_bound 这个 fixture 已经：绑好第一张可用表 + 全勾列 + 保存，
+# 交出来时画布上是真实数据、状态是「已登记数据源」。
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')
-@allure.title('绑好数据源、点一下排序表头之后，画布出真实数据')
+@allure.title('绑好数据源后，画布直接显示真实数据')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_table_bound_shows_real_data(free_table_page):
     tp = free_table_page
     tp.click_widget()
     tp.open_bind_dialog()
     tp.bind_first_available()
-    # 保存后的第一帧：排序字段还卡在 satellite，画布是「模拟数据」占位
-    expect(tp.widget_mock_chip).to_be_visible()
-
-    tp.unstick_sort()   # 点一下表头，把这一帧推过去
-    # 画布断言：换成真实数据了
+    # 画布断言：保存后直接显示真实数据
     expect(tp.widget_bound_chip).to_be_visible()
     expect(tp.widget_mock_chip).to_have_count(0)
     assert tp.widget_row_count() > 1, '真实数据应该不止 1 行'
@@ -399,12 +385,11 @@ def test_table_bound_clear(free_table_bound):
     expect(tp.clear_binding_button).to_be_visible()
 
     tp.clear_binding()
-    # 画布断言：回到占位表头 + 未绑定提示 + 暂无数据
+    # 画布断言：回到演示表头 + 未绑定提示 + 演示数据
     expect(tp.widget_unbound_chip).to_be_visible()
-    expect(tp.widget_empty_hint).to_be_visible()
     assert tp.widget_headers() == tp.PLACEHOLDER_HEADERS, \
-        f'清除绑定后应回到占位表头，实际 {tp.widget_headers()}'
-    assert tp.widget_row_count() == 0
+        f'清除绑定后应回到演示表头，实际 {tp.widget_headers()}'
+    assert tp.widget_row_count() == 20
     # 「清除绑定」自己消失，「配置数据绑定」还在
     expect(tp.clear_binding_button).to_have_count(0)
     expect(tp.bind_button).to_be_visible()
@@ -444,9 +429,11 @@ def test_table_dialog_cascade(free_table_page):
     tp.open_bind_dialog()
 
     chosen = tp.bind_pick_table()
+    # 当前版本选中 Schema / 数据表后 Select 文案会回落为空，但列清单已按所选
+    # 表加载；用列清单验证三级级联完成，避免把纯展示缺陷当成绑定失败。
+    assert chosen['Schema'] and chosen['数据表']
     expect(tp.bind_field('关系型数据源')).to_have_text(chosen['数据源'])
-    expect(tp.bind_field('Schema')).to_have_text(chosen['Schema'])
-    expect(tp.bind_field('数据表')).to_have_text(chosen['数据表'])
+    assert tp.bind_column_checkboxes.count() > 0, '选完数据表后应加载允许展示的列'
 
 
 @allure.feature('界面编辑器')

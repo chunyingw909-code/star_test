@@ -1,5 +1,6 @@
 import allure
 import pytest
+import re
 from playwright.sync_api import expect
 
 from pages.fault.fault_library_page import FaultLibraryPage
@@ -53,3 +54,8 @@ def test_tab_switchable(fault_library_page, tab_name):
     fault_library_page.open_tab(tab_name)
     # 断言：点子标签后仍停留在故障/预案库模块内（顶部 Tab 仍选中）
     expect(fault_library_page.nav_entry).to_have_attribute('aria-selected', 'true')
+    if tab_name == '快速定位':
+        # 快速定位会进入独立路由，原来的子 tab 条随之卸载。
+        expect(fault_library_page.page).to_have_url(re.compile(r'/fault/locate(?:[/?#]|$)'))
+    else:
+        expect(fault_library_page.tab(tab_name)).to_have_attribute('aria-selected', 'true')

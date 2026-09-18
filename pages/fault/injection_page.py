@@ -21,6 +21,7 @@ class FaultInjectionPage:
     """
 
     DROPDOWNS = ('目标卫星', '严重程度')   # 面板上两个下拉的 label（结构，不是数据值）
+    SEVERITIES = ('I', 'II', 'III', 'IV')
 
     # ---------- 定位（全部集中在 __init__）----------
     def __init__(self, page):
@@ -57,8 +58,17 @@ class FaultInjectionPage:
         return self._fault_type_list.get_by_role('button')
 
     def fault_type_names(self):
-        """故障类型列表当前显示的名称（每项文本第一行）。"""
-        return [t.splitlines()[0].strip() for t in self.fault_type_items().all_inner_texts()]
+        """故障类型列表当前显示的有效名称。
+
+        目录数据可能夹有空名称，或只剩严重等级的残缺记录。交互用例只操作至少包含
+        「名称 + 等级」两行的有效项；残缺数据不会再让整组测试抛 IndexError。
+        """
+        names = []
+        for text in self.fault_type_items().all_inner_texts():
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            if len(lines) >= 2 and lines[0] not in self.SEVERITIES:
+                names.append(lines[0])
+        return names
 
     def active_fault_count(self):
         """「活动故障 (N)」标题里的 N。给 test_injection_side_panels / _submit 用。"""

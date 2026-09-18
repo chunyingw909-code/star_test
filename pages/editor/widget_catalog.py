@@ -1,10 +1,9 @@
-"""内置组件清单（唯一数据源）。
+"""插件注册清单与当前可添加组件清单。
 
-同一份 12 个组件，被两处引用并各自校验：
-- 自由布局「添加组件」菜单
-- Plugin Manager 表格（显示名 / Type / 分类）
+Plugin Manager 仍登记 12 个组件；自由布局「添加组件」菜单目前只开放其中 8 个。
+下线组件保留在插件注册表中，但不应出现在可添加菜单里。
 
-顺序即自由布局菜单 / Plugin Manager 表格里的顺序。
+顺序即 Plugin Manager 表格里的顺序。
 """
 
 WIDGETS = [
@@ -24,3 +23,7 @@ WIDGETS = [
 
 LABELS = [w['label'] for w in WIDGETS]
 TYPES = [w['type'] for w in WIDGETS]
+
+RETIRED_TYPES = {'InputWidget', 'SelectWidget', 'NumberWidget', 'FaultGraphWidget'}
+ACTIVE_WIDGETS = [w for w in WIDGETS if w['type'] not in RETIRED_TYPES]
+ACTIVE_LABELS = [w['label'] for w in ACTIVE_WIDGETS]

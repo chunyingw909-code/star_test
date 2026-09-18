@@ -1,10 +1,10 @@
-from pages.editor.widget_catalog import LABELS
+from pages.editor.widget_catalog import ACTIVE_LABELS
 from pages.editor.json_view_mixin import JsonViewMixin
 from pages.editor.editor_page import EditorPage
 
 
 class FreeLayoutPage(JsonViewMixin):
-    COMPONENT_NAMES = LABELS
+    COMPONENT_NAMES = ACTIVE_LABELS
 
     # 组件对应插件被关闭后的锁定态文案（属性面板里显示）
     DISABLED_NOTICE = '该组件已禁用（对应插件已关闭），禁止编辑。重新启用插件后恢复。'

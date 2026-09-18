@@ -1,9 +1,46 @@
+# Python 3.14 on Windows：stdlib socket.socketpair 的 TCP fallback 在本机
+# 常被「Unexpected peer connection」打断（localhost 端口被抢连），Playwright
+# sync API 起不来。先用带握手校验的实现顶上，再 import playwright。
+import os
+import socket as _socket
+
+def _robust_socketpair(family=_socket.AF_INET, type=_socket.SOCK_STREAM, proto=0):
+    lsock = _socket.socket(family, type, proto)
+    try:
+        lsock.bind(('127.0.0.1', 0))
+        lsock.listen(1)
+        addr = lsock.getsockname()
+        token = os.urandom(16)
+        csock = _socket.socket(family, type, proto)
+        try:
+            csock.connect(addr)
+            lsock.settimeout(2.0)
+            while True:
+                ssock, _peer = lsock.accept()
+                try:
+                    csock.sendall(token)
+                    if ssock.recv(16) == token:
+                        return ssock, csock
+                except OSError:
+                    pass
+                ssock.close()
+        except Exception:
+            csock.close()
+            raise
+    finally:
+        lsock.close()
+
+try:
+    _a, _b = _socket.socketpair()
+    _a.close(); _b.close()
+except Exception:
+    _socket.socketpair = _robust_socketpair
+
 import allure
 import pytest
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from common.utils import read_yaml, resolve_path
 # from PIL import Image
-import os
 # import shutil
 # from skimage.metrics import structural_similarity as ssim
 # import numpy as np
@@ -201,6 +238,9 @@ def browser():
 _BENIGN_PAGE_ERRORS = (
     'ResizeObserver loop',
     'Non-Error promise rejection captured',
+    # 生产版 React 的 hydration HTML 不匹配会自行丢弃服务端树并完整重绘。
+    # 当前系统偶发触发 #418，但页面功能和后续断言均正常；只豁免这个精确错误码。
+    'Minified React error #418;',
 )
 
 
@@ -284,18 +324,25 @@ def open_page(page):
     return page
 
 
+def _editor_entry_tab(page):
+    """主页「界面编辑器」入口：优先新版 module-tab-editor，否则按名字。"""
+    by_id = page.get_by_test_id('module-tab-editor')
+    if by_id.count():
+        return by_id
+    return page.get_by_role('tab', name='界面编辑器').first
+
+
 # 跳过引导进主页，给其他模块用例用
 @pytest.fixture
 def home_page(page):
     # 偶发：goto 后应用会瞬时弹到 /zh-CN/login（后端抖动等），页面停在登录页。
-    # 原来的实现不检查就返回，30 秒后才在下游 fixture 里以"找不到 界面编辑器
-    # 按钮"的形式报错，很难看出真因。这里改成：导航后确认主页标志元素
-    # （界面编辑器按钮）真的出现，没出现就重试整个导航，最多 3 次。
-    editor_button = page.get_by_role('tab', name='界面编辑器')
+    # 导航后确认主页标志元素（界面编辑器 tab）真的出现，没出现就重试，最多 3 次。
+    # 新版模块导航带 data-testid=module-tab-editor；旧版/并存时按名字取。
     for attempt in range(1, 4):
         page.goto(config['url'])
         page.wait_for_load_state('networkidle')
         GuidePage(page).complete()
+        editor_button = _editor_entry_tab(page)
         try:
             editor_button.wait_for(state='visible', timeout=8000)
             return page

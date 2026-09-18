@@ -40,11 +40,11 @@ def test_locate_history_rows(locate_history_page):
     for r in rows:
         # 时间：固定格式 MM/DD HH:MM:SS
         assert re.match(P.TIME_RE, r['time']), f'时间格式不符：{r}'
-        # 状态：只有「命中」/「未命中」
+        # 状态：命中 / 多命中 / 未命中
         assert r['status'] in P.STATUSES, f'未知状态：{r}'
 
-        if r['status'] == '命中':
-            # 命中：编码固定格式、故障名非空、等级是 I~IV
+        if r['status'] in P.MATCHED_STATUSES:
+            # 命中或多命中：编码固定格式、故障名非空、等级是 I~IV
             assert re.match(P.CODE_RE, r['code']), f'命中行编码格式不符：{r}'
             assert r['fault'], f'命中行故障名为空：{r}'
             assert r['severity'] in P.SEVERITIES, f'命中行等级异常：{r}'
@@ -67,7 +67,8 @@ def test_locate_history_rows(locate_history_page):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_locate_history_filter_by_code_exact(locate_history_page):
     h = locate_history_page
-    hit_codes = [r['code'] for r in h.rows_data() if r['status'] == '命中' and r['code']]
+    hit_codes = [r['code'] for r in h.rows_data()
+                 if r['status'] in h.MATCHED_STATUSES and r['code']]
     if not hit_codes:
         pytest.skip('当前页没有带编码的命中记录')
 
