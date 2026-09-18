@@ -171,7 +171,7 @@ def test_chart_timer_all_options(free_chart_page):
         cp.pick_option(cp.prop_timer_action, name)
         # 右侧断言：选「无」等于清空，下拉里显示的是空占位符而不是「无」两个字
         shown = cp.NONE_DISPLAY if name == cp.NONE_OPTION else name
-        expect(cp.prop_timer_action, f'定时触发选了「{name}」之后应显示 {shown!r}')             .to_have_text(shown)
+        expect(cp.prop_timer_action, f'定时触发选了「{name}」之后应显示 {shown!r}').to_have_text(shown)
 
 
 @allure.feature('界面编辑器')

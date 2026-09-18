@@ -5,12 +5,14 @@ from pages.editor.free_layout_page import FreeLayoutPage
 class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
     """容器组件（自由布局）—— 能往里嵌套其它组件的盒子。
 
-    只放实际有用例的定位和操作。列数 / 间距 / 最小高度 / children 这几个属性
-    系统这边不生效，用例不写，所以这里也不留定位，原因见容器的测试文件开头。
+    列数作用在内部 CSS grid 的 grid-template-columns 上（repeat(N, 1fr)，N=1..6）；
+    间距作用在 gap 上。最小高度 / children 仍不测，原因见容器的测试文件开头。
     """
 
     # 「内边距」现在直接按像素生效：填 1 画布上就是 1px。
     PADDING_UNIT_PX = 1
+    COLUMNS_DEFAULT, COLUMNS_MIN, COLUMNS_MAX = 4, 1, 6
+    GAP_DEFAULT = 8
 
     def __init__(self, page):
         super().__init__(page)
@@ -25,6 +27,9 @@ class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
         self.prop_border_color = page.get_by_label('边框色', exact=True)
         self.prop_border_color_swatch = self.color_swatch('边框色')
         self.prop_padding = page.get_by_label('内边距', exact=True)
+        # 列数 1–6，默认 4；间距 0–32px，默认 8。都作用在内部 grid 上。
+        self.prop_columns = page.get_by_label('列数', exact=True)
+        self.prop_gap = page.get_by_label('间距 (px)', exact=True)
 
         # 选中容器【内部】的子组件时，右侧面板的两个标志：
         # 标题变成「文本（容器内）」这种，下面还有一行位置说明
@@ -53,13 +58,48 @@ class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
 
     # ==================== 操作 ====================
 
+    def select_container(self):
+        """点容器自己的标题，避免点到里面的子组件把面板切走。"""
+        self.widget_title.click()
+        self.prop_panel.wait_for(state='visible')
+
     def add_child(self, name):
         """往容器里加一个组件。
         先选中容器再点「添加组件」，新组件就落进容器内部而不是画布上。"""
-        self.click_widget()
+        self.select_container()
         self.add_component_button.click()
         self.component_item(name).click()
         self.page.wait_for_timeout(800)
+
+    def canvas_column_count(self):
+        """画布上内部 grid 实际有几列（读 computed grid-template-columns 的轨道数）。"""
+        tracks = self.widget_slot.evaluate(
+            "el => getComputedStyle(el).gridTemplateColumns")
+        if not tracks or tracks == 'none':
+            return 0
+        return len(tracks.split())
+
+    def canvas_gap_px(self):
+        """画布上内部 grid 的列间距，像素整数。"""
+        raw = self.widget_slot.evaluate("el => getComputedStyle(el).columnGap")
+        return round(float(str(raw).replace('px', '') or 0))
+
+    def child_boxes(self):
+        """每个子组件的视口矩形 {x, y, w, h}。"""
+        return self.children.evaluate_all("""els => els.map(el => {
+            const r = el.getBoundingClientRect();
+            return {x: r.x, y: r.y, w: r.width, h: r.height};
+        })""")
+
+    def child_rows(self, tol=8):
+        """按 y 把子组件收成行（同一行 y 差不超过 tol）。"""
+        rows = []
+        for box in sorted(self.child_boxes(), key=lambda b: (b['y'], b['x'])):
+            if not rows or abs(box['y'] - rows[-1][0]['y']) > tol:
+                rows.append([box])
+            else:
+                rows[-1].append(box)
+        return rows
 
     def select_child(self, index=0):
         """点选容器内第 index 个子组件，右侧切到它的属性面板。"""
