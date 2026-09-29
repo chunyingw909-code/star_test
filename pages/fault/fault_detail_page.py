@@ -1,5 +1,7 @@
 import re
 
+from common import g6_graph
+
 
 class FaultDetailPage:
     """故障详情视图（从目录点某条故障进入；URL 仍 /fault，内容在 fault-catalog-root 内替换）。
@@ -7,11 +9,14 @@ class FaultDetailPage:
     顶部：返回 + 编码 + 名称 + 严重等级(Chip) + 分系统。
     4 个子 tab（进来默认在「关系图」）：
       - 基本信息：故障描述 / 目标模块 / 故障原因 (N) / 故障影响 (N)
-      - 关系图：canvas 画的（多层 canvas，节点/连线不在 DOM 里）+ 右上角图例 + 左上角搜索框
-               + click 节点 → 左下角详情卡（带 × 关闭）。canvas 上的 hover 高亮 / 搜索居中 /
-               缩放 / 拖动都画在像素里，DOM 看不到，只能验「不报错、canvas 还在」。
-      - 处置预案 (N)：N 张预案卡片（步骤 / 预期效果 / 版本 / 查看详情 / 仿真验证）
-      - 定位规则 (N)：规则表 N 行（参数编码 / 判据类型 / 判据表达式 / 优先级）
+      - 关系图：AntV G6 画在多层 canvas 上（节点/连线不在 DOM 里）+ 右上角图例 + 左上角搜索框
+               + click 节点 → 左下角详情卡（带 × 关闭）。高亮是画出来的白描边加粗，
+               搜索还会把命中节点挪到视口中心。用 g6_graph 读 getElementRenderStyle。
+               模型里的 opacity 0.2 没有画到节点上，不能拿来当高亮断言。
+      - 处置预案 (N)：N 张预案卡片（步骤 / 预期效果 / 版本 / 查看详情）。
+        「仿真验证」不是每张卡都有，不在这张卡的必有项里。
+      - 定位规则 (N)：规则表 N 行（参数编码 / 判据类型 / 判据表达式 / 优先级）。
+        没有规则时显示「暂未关联定位规则」，和处置预案的空态同一类。
 
     对应用例：testcases/fault/test_fault_detail.py（fixture 会把所点那行的
     编码/名称/分系统/严重等级 存进 self.opened，供「详情就是所点这条」的断言比对）。
@@ -19,6 +24,14 @@ class FaultDetailPage:
 
     TABS = ['基本信息', '关系图', '处置预案', '定位规则']
     GRAPH_LEGEND = ['故障模式', '原因', '影响', '预案', '规则']
+    # 详情卡上的类别文案，比图例全（图例写「原因」，卡上写「故障原因」）
+    NODE_KIND = {
+        'faultMode': '故障模式',
+        'cause': '故障原因',
+        'effect': '故障影响',
+        'plan': '处置预案',
+        'rule': '定位规则',
+    }
     RULE_HEADERS = ['参数编码', '判据类型', '判据表达式', '优先级']
 
     # ---------- 定位（不带参数的全部集中在 __init__；带参数的见下面的工厂方法）----------
@@ -40,6 +53,7 @@ class FaultDetailPage:
         self.plan_detail_button = self.root.get_by_role('button', name='查看详情')
         self.sim_verify_button = self.root.get_by_role('button', name='仿真验证')
         # 定位规则
+        self.rules_empty_hint = self.root.get_by_text('暂未关联定位规则')
         self._rules_table = self.root.locator('table')
         self.rules_thead = self._rules_table.locator('thead')
         self._rule_rows = self._rules_table.locator('tbody tr')
@@ -65,6 +79,14 @@ class FaultDetailPage:
     def legend_item(self, name):
         """关系图图例里某一项的 locator。"""
         return self.root.get_by_text(name, exact=True)
+
+    def search_graph_node(self, keyword):
+        """关系图搜索框填关键字 + 回车。fill() 之后立刻 press('Enter') 中间不留间隔时，
+        偶尔会遇到 Enter 触发时组件自己的 onChange 状态还没提交、回车像是打在空值上的
+        情况（人工操作因为打字本身有间隔不会碰到）；这里补一个短暂等待让状态先落定。"""
+        self.graph_search_input.fill(keyword)
+        self.page.wait_for_timeout(300)
+        self.graph_search_input.press('Enter')
 
     # ---------- 头部 / tab（给 test_detail_header / _controls / _fault_detail_opens 用）----------
 
@@ -111,21 +133,85 @@ class FaultDetailPage:
     def _graph_box(self):
         return self.graph_canvas.first.bounding_box()
 
+    def read_graph(self):
+        """当前这一帧：节点、连线、视口中心。画布还没挂上 G6 时返回 None。"""
+        return g6_graph.read_graph(self.graph_canvas.first)
+
+    def wait_graph(self):
+        return g6_graph.wait_graph(self.graph_canvas.first)
+
+    def pick_highlight_node(self, snap=None):
+        """挑一个点下去能分出「加粗 / 保持原色」的节点。
+
+        优先度数最小的「原因」：它通常只连中心故障，其余节点不会被描白。
+        不点「预案」，那个点击会跳走。
+        """
+        snap = snap or self.wait_graph()
+        degree = {node['id']: 0 for node in snap['nodes']}
+        for edge in snap['edges']:
+            degree[edge['source']] = degree.get(edge['source'], 0) + 1
+            degree[edge['target']] = degree.get(edge['target'], 0) + 1
+        total = len(snap['nodes'])
+        candidates = [
+            node for node in snap['nodes']
+            if node['nodeType'] != 'plan' and degree.get(node['id'], 0) < max(total - 1, 1)
+        ]
+        if not candidates:
+            candidates = [node for node in snap['nodes'] if node['nodeType'] == 'faultMode'] or snap['nodes']
+        candidates.sort(key=lambda node: (node['nodeType'] != 'cause', degree.get(node['id'], 0)))
+        return candidates[0]
+
+    def click_graph_node(self, node_id):
+        """按 G6 给出的屏幕坐标点这个节点，返回该节点。点预案会触发跳转，调用方自己避开。"""
+        snap = self.read_graph() or self.wait_graph()
+        node = next((item for item in snap['nodes'] if item['id'] == node_id), None)
+        if node is None:
+            raise AssertionError(f'关系图上没有节点 {node_id}')
+        x, y = node['client']
+        box = self._graph_box()
+        inside = box['x'] <= x <= box['x'] + box['width'] and box['y'] <= y <= box['y'] + box['height']
+        if not inside:
+            raise AssertionError(f"节点「{node['label']}」不在画布里，坐标 {node['client']}，画布 {box}")
+        self.page.mouse.click(x, y)
+        return node
+
     def click_a_node(self):
-        """在画布上点出一个节点的详情卡。种子故障节点一般在正中，命不中就在附近扫几个点。
-        返回是否点出了详情卡（都没点到返回 False，交给用例 skip）。"""
-        b = self._graph_box()
-        cx, cy = b['x'] + b['width'] / 2, b['y'] + b['height'] / 2
-        for dx, dy in [(0, 0), (0, -60), (-60, 0), (60, 0), (0, 60), (-90, 60), (90, -60)]:
-            x, y = cx + dx, cy + dy
-            self.page.mouse.move(x - 100, y - 80, steps=6)
-            self.page.mouse.move(x, y, steps=8)
-            self.page.mouse.click(x, y)
-            self.page.wait_for_timeout(200)
-            if self.graph_detail_card.count() >= 1:
-                return True
-            self.click_graph_blank()
-        return False
+        """点当前故障的「故障模式」节点，打开左下角详情卡。点不到返回 False。"""
+        snap = self.wait_graph()
+        fault = next((node for node in snap['nodes'] if node['nodeType'] == 'faultMode'), None)
+        if fault is None:
+            return False
+        self.click_graph_node(fault['id'])
+        self.page.wait_for_timeout(200)
+        return self.graph_detail_card.count() >= 1
+
+    def wait_highlight_around(self, node_id):
+        """点中 node_id 之后：它和邻居是白色加粗描边，其余保持原色。"""
+        snap = self.read_graph() or self.wait_graph()
+        lit_nodes, lit_edges = g6_graph.incident(snap, node_id)
+        return g6_graph.wait_paint(self.graph_canvas.first, lit_nodes, lit_edges)
+
+    def wait_search_highlight(self, keyword):
+        """搜索回车后：命中的节点和相连边是白色加粗描边，其余保持原色，第一个命中居中。
+        触发搜索见 search_graph_node()。孤立单跑几十次量过，回车后大约 1s 就画完，
+        从没超过 2.5s；只有在整套用例并发跑、系统繁忙时才偶发看到「从头到尾一点没变」——
+        不是画得慢，是那次回车被系统繁忙吞掉了、压根没传到组件。所以先按 2.5s 等一轮，
+        没等到就当一次「没触发」，重按一次回车再等一轮，而不是靠拉长超时去掩盖。"""
+        snap = self.read_graph() or self.wait_graph()
+        matched, lit_nodes, lit_edges = g6_graph.search_hits(snap, keyword)
+        if not matched:
+            raise AssertionError(f'搜索「{keyword}」没有命中任何节点：{[n["label"] for n in snap["nodes"]]}')
+        try:
+            painted = g6_graph.wait_paint(
+                self.graph_canvas.first, lit_nodes, lit_edges, focus_id=matched[0]['id'], timeout_ms=2500)
+        except AssertionError:
+            self.graph_search_input.press('Enter')
+            painted = g6_graph.wait_paint(
+                self.graph_canvas.first, lit_nodes, lit_edges, focus_id=matched[0]['id'])
+        return matched[0], painted
+
+    def wait_highlight_cleared(self):
+        return g6_graph.wait_restored(self.graph_canvas.first)
 
     def click_graph_blank(self):
         """点画布左上角空白处，取消节点选中。"""

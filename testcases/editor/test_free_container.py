@@ -8,7 +8,7 @@
   2. 容器特有的嵌套行为：往容器里加组件、选中容器内的组件、改它的属性、
      删掉容器内的组件、删掉容器本身
 """
-import math
+import re
 
 import allure
 import pytest
@@ -49,10 +49,8 @@ def test_container_default_properties(free_container_page):
     expect(cp.prop_gap).to_have_value(str(cp.GAP_DEFAULT))
     # 画布断言：内边距现在直接按 px 生效；默认 4 列、间距 8px
     expect(cp.widget_body).to_have_css('padding', f'{8 * cp.PADDING_UNIT_PX}px')
-    assert cp.canvas_column_count() == cp.COLUMNS_DEFAULT, (
-        f'默认应是 {cp.COLUMNS_DEFAULT} 列，实际 {cp.canvas_column_count()}')
-    assert cp.canvas_gap_px() == cp.GAP_DEFAULT, (
-        f'默认间距应是 {cp.GAP_DEFAULT}px，实际 {cp.canvas_gap_px()}')
+    assert len(cp.grid_column_widths()) == cp.COLUMNS_DEFAULT
+    expect(cp.widget_slot).to_have_css('column-gap', f'{cp.GAP_DEFAULT}px')
 
 
 @allure.feature('界面编辑器')
@@ -143,8 +141,11 @@ def test_container_border_color(free_container_page):
     expect(cp.prop_border_color).to_have_value('#abcdef')
     expect(cp.prop_border_color_swatch).to_have_value('#abcdef')
     # 画布断言
+    # 不校验 border-width：画布容器是固定 1920px 设计分辨率，跟实际视口宽度
+    # 不一致时，浏览器算出来的 border-width 计算值会是非整数的次像素（例如
+    # 0.571429px），CSS 源码写的确实是 1px，产品对边框具体粗细也没有硬性要求，
+    # 只要颜色跟着变就算数。
     expect(cp.widget_body).to_have_css('border-color', 'rgb(171, 205, 239)')
-    expect(cp.widget_body).to_have_css('border-width', '1px')
 
 
 # ==================== 内边距 ====================
@@ -231,13 +232,6 @@ def test_container_add_multiple_children(free_container_page):
 
 # ==================== 列数与间距 ====================
 
-def _same_row(a, b, tol=8):
-    return abs(a['y'] - b['y']) <= tol
-
-
-def _horizontal_gap(left, right):
-    return right['x'] - (left['x'] + left['w'])
-
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-容器组件')
@@ -250,23 +244,22 @@ def test_container_gap_changes_canvas(free_container_page):
     cp.select_container()
     expect(cp.children).to_have_count(2)
     expect(cp.prop_gap).to_have_value(str(cp.GAP_DEFAULT))
-    assert cp.canvas_gap_px() == cp.GAP_DEFAULT
+    expect(cp.widget_slot).to_have_css('column-gap', f'{cp.GAP_DEFAULT}px')
 
-    before = cp.child_boxes()
-    assert len(before) == 2
-    assert _same_row(before[0], before[1]), '默认 4 列时两个子组件应在同一行'
-    assert abs(_horizontal_gap(before[0], before[1]) - cp.GAP_DEFAULT) <= 1, (
-        f'默认间距画布上应是 {cp.GAP_DEFAULT}px，实际两组件空隙 '
-        f'{_horizontal_gap(before[0], before[1]):.1f}px')
+    first = cp.children.nth(0).bounding_box()
+    second = cp.children.nth(1).bounding_box()
+    assert first['y'] == pytest.approx(second['y'], abs=1), '默认 4 列时两个子组件应在同一行'
+    assert second['x'] - first['x'] - first['width'] == pytest.approx(
+        cp.GAP_DEFAULT, abs=1)
 
     cp.prop_gap.fill('24')
     expect(cp.prop_gap).to_have_value('24')
-    cp.page.wait_for_timeout(400)
-    assert cp.canvas_gap_px() == 24, f'画布 gap 应是 24px，实际 {cp.canvas_gap_px()}'
-    after = cp.child_boxes()
-    assert _same_row(after[0], after[1]), '改间距不应把两个组件拆到两行'
-    gap = _horizontal_gap(after[0], after[1])
-    assert abs(gap - 24) <= 1, f'两个组件之间的空隙应是 24px，实际 {gap:.1f}px'
+    expect(cp.widget_slot).to_have_css('column-gap', '24px')
+
+    first = cp.children.nth(0).bounding_box()
+    second = cp.children.nth(1).bounding_box()
+    assert first['y'] == pytest.approx(second['y'], abs=1), '改间距不应把两个组件拆到两行'
+    assert second['x'] - first['x'] - first['width'] == pytest.approx(24, abs=1)
 
 
 @allure.feature('界面编辑器')
@@ -283,30 +276,24 @@ def test_container_columns_1_to_6(free_container_page, cols):
 
     cp.prop_columns.fill(str(cols))
     expect(cp.prop_columns).to_have_value(str(cols))
-    cp.page.wait_for_timeout(400)
+    expect(cp.widget_slot).to_have_attribute(
+        'style', re.compile(rf'grid-template-columns:\s*repeat\({cols},\s*1fr\)'))
 
-    style = cp.widget_slot.get_attribute('style') or ''
-    assert f'repeat({cols}, 1fr)' in style, (
-        f'内部 grid 应是 repeat({cols}, 1fr)，实际 style={style}')
-    assert cp.canvas_column_count() == cols, (
-        f'画布应是 {cols} 列，实际 {cp.canvas_column_count()}')
-
-    boxes = cp.child_boxes()
-    rows = cp.child_rows()
+    column_widths = cp.grid_column_widths()
+    assert len(column_widths) == cols, f'画布应是 {cols} 列，实际 {len(column_widths)}'
+    boxes = [cp.children.nth(i).bounding_box() for i in range(2)]
     if cols == 1:
-        assert len(rows) == 2, f'1 列时应上下堆成 2 行，实际 {len(rows)} 行'
-        assert abs(boxes[0]['x'] - boxes[1]['x']) <= 1, '1 列时两个组件应左对齐'
-        assert boxes[1]['y'] > boxes[0]['y'] + boxes[0]['h'] - 1, (
+        assert boxes[0]['x'] == pytest.approx(boxes[1]['x'], abs=1), '1 列时两个组件应左对齐'
+        assert boxes[1]['y'] > boxes[0]['y'] + boxes[0]['height'] - 1, (
             '1 列时第二个组件应在第一个下面')
     else:
-        assert len(rows) == 1, f'{cols} 列时两个组件应在同一行，实际 {len(rows)} 行'
-        assert boxes[1]['x'] > boxes[0]['x'] + boxes[0]['w'] - 1, (
+        assert boxes[0]['y'] == pytest.approx(
+            boxes[1]['y'], abs=1), f'{cols} 列时两个组件应在同一行'
+        assert boxes[1]['x'] > boxes[0]['x'] + boxes[0]['width'] - 1, (
             f'{cols} 列时第二个组件应在第一个右边')
-        slot_w = cp.widget_slot.bounding_box()['width']
-        expected_w = (slot_w - (cols - 1) * cp.canvas_gap_px()) / cols
-        for i, box in enumerate(boxes):
-            assert abs(box['w'] - expected_w) <= 2, (
-                f'{cols} 列时第 {i} 个子组件宽应约 {expected_w:.1f}px，实际 {box["w"]:.1f}px')
+    for i, box in enumerate(boxes):
+        assert box['width'] == pytest.approx(column_widths[0], abs=2), (
+            f'{cols} 列时第 {i} 个子组件宽度与网格列宽不一致')
 
 
 @allure.feature('界面编辑器')
@@ -322,34 +309,29 @@ def test_container_seven_children_change_columns(free_container_page):
     expect(cp.canvas_widgets(), '7 个子组件都应在容器里，不应漏到画布上') \
         .to_have_count(1)
 
-    body = cp.page.locator('body')
     for cols in range(cp.COLUMNS_MIN, cp.COLUMNS_MAX + 1):
         cp.prop_columns.fill(str(cols))
         expect(cp.prop_columns).to_have_value(str(cols))
-        cp.page.wait_for_timeout(400)
+        expect(cp.widget_slot).to_have_attribute(
+            'style', re.compile(rf'grid-template-columns:\s*repeat\({cols},\s*1fr\)'))
 
-        txt = body.inner_text()
+        txt = cp.body.inner_text()
         for s in ('Something went wrong', 'Minified React error', '页面出错', '页面崩溃'):
             assert s not in txt, f'列数改成 {cols} 后面出错文案：{s!r}'
         expect(cp.children, f'列数 {cols} 后子组件还在').to_have_count(7)
         expect(cp.canvas_widgets(), f'列数 {cols} 后画布上仍只有容器').to_have_count(1)
 
-        style = cp.widget_slot.get_attribute('style') or ''
-        assert f'repeat({cols}, 1fr)' in style, (
-            f'列数 {cols}：grid 应是 repeat({cols}, 1fr)，实际 {style}')
-        assert cp.canvas_column_count() == cols, (
-            f'列数 {cols}：画布实际列数 {cp.canvas_column_count()}')
+        column_widths = cp.grid_column_widths()
+        assert len(column_widths) == cols, (
+            f'列数 {cols}：画布实际列数 {len(column_widths)}')
 
-        rows = cp.child_rows()
-        expected_rows = math.ceil(7 / cols)
-        assert len(rows) == expected_rows, (
-            f'列数 {cols} 时 7 个组件应排成 {expected_rows} 行，实际 {len(rows)} 行')
-        # 除最后一行外，每行都应坐满 cols 个
-        for i, row in enumerate(rows[:-1]):
-            assert len(row) == cols, (
-                f'列数 {cols} 第 {i + 1} 行应有 {cols} 个，实际 {len(row)} 个')
-        assert len(rows[-1]) == 7 - cols * (expected_rows - 1), (
-            f'列数 {cols} 最后一行个数不对：{ [len(r) for r in rows] }')
+        tops = cp.children.evaluate_all(
+            'els => els.map(el => Math.round(el.getBoundingClientRect().top))')
+        row_counts = [tops.count(top) for top in dict.fromkeys(tops)]
+        full_rows, remainder = divmod(7, cols)
+        expected = [cols] * full_rows + ([remainder] if remainder else [])
+        assert row_counts == expected, (
+            f'列数 {cols} 时每行组件数应是 {expected}，实际 {row_counts}')
 
 
 # ==================== 容器内的组件 ====================

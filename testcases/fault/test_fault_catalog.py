@@ -2,6 +2,9 @@ import allure
 import pytest
 from playwright.sync_api import expect
 
+from testcases.fault.pager_checks import (
+    assert_next_page, assert_page_size_10, assert_total_stable)
+
 from pages.fault.fault_catalog_page import FaultCatalogPage
 
 
@@ -233,15 +236,8 @@ def test_column_sort(catalog_page):
 @allure.title('改「每页行数」为 10，当前页行数与行号区间随之变化')
 @allure.severity(allure.severity_level.NORMAL)
 def test_rows_per_page_change(catalog_page):
-    if catalog_page.total_count() <= 10:
-        pytest.skip('数据不足一页（≤10 条），无法验证每页行数')
-
-    catalog_page.set_rows_per_page(10)
-    # 断言：每页行数生效
-    assert catalog_page.rows_per_page() == 10
-    # 断言：当前页正好 10 行、行号区间从 1 到 10
-    assert catalog_page.row_count() == 10
-    assert catalog_page.page_range() == (1, 10)
+    # 断言：每页行数改成 10 后，当前页正好 10 行、行号 1-10
+    assert_page_size_10(catalog_page)
 
 
 @allure.feature('故障/预案库')
@@ -249,11 +245,8 @@ def test_rows_per_page_change(catalog_page):
 @allure.title('总条数不随「每页行数」变化')
 @allure.severity(allure.severity_level.NORMAL)
 def test_total_count_stable_across_rows_per_page(catalog_page):
-    total = catalog_page.total_count()
-    for n in (10, 50, 20):
-        catalog_page.set_rows_per_page(n)
-        # 断言：换每页行数不改变总条数
-        assert catalog_page.total_count() == total
+    # 断言：换 10 / 50 / 20 都不改变总条数
+    assert_total_stable(catalog_page)
 
 
 @allure.feature('故障/预案库')
@@ -261,18 +254,8 @@ def test_total_count_stable_across_rows_per_page(catalog_page):
 @allure.title('翻到下一页：行号区间接着往后、内容与上一页不重叠')
 @allure.severity(allure.severity_level.NORMAL)
 def test_next_page(catalog_page):
-    catalog_page.set_rows_per_page(10)
-    if catalog_page.total_count() <= 10:
-        pytest.skip('数据不足一页（≤10 条），没有下一页')
-
-    _, last = catalog_page.page_range()
-    page1_codes = catalog_page.codes()
-
-    catalog_page.goto_next_page()
-    # 断言：行号区间起点 = 上一页终点 + 1
-    assert catalog_page.page_range()[0] == last + 1
-    # 断言：下一页的编码与上一页完全不重叠
-    assert set(catalog_page.codes()).isdisjoint(page1_codes)
+    # 断言：行号接着上一页，下一页编码和上一页不重叠
+    assert_next_page(catalog_page, catalog_page.codes)
 
 
 # ==================== 点行进详情，再返回 ====================

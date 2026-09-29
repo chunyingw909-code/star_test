@@ -3,14 +3,9 @@ from pages.editor.free_layout_page import FreeLayoutPage
 
 
 class FreeStatusPage(CommonStyleMixin, FreeLayoutPage):
-    """状态灯组件（自由布局）。三个工业控件里，这个是真能反映数据的。
+    """状态灯组件（自由布局）。
 
-    能测的：标签、四种状态颜色、尺寸、显示标签开关、告警闪烁开关。
-
-    ⚠️ 不测的：
-       状态文字 —— 映射是坏的（填"警告"画布反而显示"危险"），别改它，
-                  默认停在"正常"就行
-       卫星 ID、字段路径 —— 绑遥测数据用的，现在连不上真实数据
+    除普通样式外，可通过统一绑定对话框显示真实状态和 LIVE 标记。
     """
 
     def __init__(self, page):
@@ -29,6 +24,8 @@ class FreeStatusPage(CommonStyleMixin, FreeLayoutPage):
         self.widget = self.canvas_widgets().first
         # 标签文字
         self.widget_label = self.widget.locator('span.MuiTypography-caption').first
+        self.widget_status = self.widget.locator('span.MuiTypography-caption').nth(1)
+        self.widget_live = self.widget.get_by_text('● LIVE', exact=True)
 
     # ---------- 是 / 否 单选 ----------
     def show_label_radio(self, value):
@@ -59,3 +56,7 @@ class FreeStatusPage(CommonStyleMixin, FreeLayoutPage):
         """灯珠渲染宽高 (w, h)。尺寸属性生效的结果。"""
         info = self._lamp()
         return (info['w'], info['h'])
+
+    def lamp_color(self):
+        """灯珠当前渲染颜色；真实状态映射的用户可见结果。"""
+        return self._lamp()['bg']

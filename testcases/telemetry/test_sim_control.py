@@ -7,305 +7,413 @@ from playwright.sync_api import expect
 from pages.telemetry.telemetry_page import TelemetryPage
 
 
-# 卫星遥测 +「仿真控制」完整流程用例。
-# 覆盖：进入模块、5 个分系统切换、模拟/真实节点切换、播放/暂停/停止/重置、
-#       速度档、进度读数、保存快照 / 加载断点、卫星选择、仿真节点、实时曲线时间窗、批量修改。
-# 断言口径：能确定的行为（档位切换 / T 递增 / snackbar / 弹窗）严格断言；
-#           已知实现不稳或非本轮重点的（自定义倍速生效、卫星切换生效、计数变化）只断言
-#           "可点击 / 有响应 / 不崩"。前端未捕获报错由根 conftest 的 fail_on_page_error 兜底。
+# 卫星遥测主区 + 左侧仿真控制的功能用例。
+# 本文件不覆盖导入、导出、批量修改和实时曲线时间窗；这些能力后续单独成组。
+# 所有断言都落在可观察结果上：固定参数、场景/节点状态、仿真时间、曲线数据和快照恢复。
 
 
-# ==================== 进入模块 ====================
+SUBSYSTEM_CASES = list(TelemetryPage.SUBSYSTEM_PARAMETERS.items())
+
+
+def _parameter_count(groups):
+    return sum(len(parameters) for parameters in groups.values())
+
+
+# ==================== 进入模块 / 固定参数 ====================
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-进入模块')
-@allure.title('点顶部「卫星遥测」进入，显示「星座数字验证系统」+「仿真控制」面板，默认停在「供配电」')
+@allure.story('遥测主区-进入模块')
+@allure.title('点顶部「卫星遥测」后该 Tab 选中，主区默认展示「供配电」8 条参数')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_enter_module(telemetry_page):
-    expect(telemetry_page.title).to_be_visible()
-    expect(telemetry_page.sim_control_heading).to_be_visible()
+    # 断言：真正进入了卫星遥测主区，而不是只看到全局常驻的标题和仿真侧栏。
+    expect(telemetry_page.nav_entry).to_have_attribute('aria-selected', 'true')
     assert telemetry_page.selected_subtab() == '供配电'
 
+    # 断言：默认分系统的参数内容已渲染完整。
+    assert telemetry_page.parameter_cards.count() == 8
+    expect(telemetry_page.parameter_group('太阳阵')).to_be_visible()
 
-# ==================== 分系统子标签（5 个模式切换）====================
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-分系统切换')
-@allure.title('点分系统「{name}」→ 它被选中，其余全部取消选中')
+@allure.story('遥测主区-分系统参数')
+@allure.title('分系统「{name}」展示产品定义的固定分组、参数名、单位和总数')
 @allure.severity(allure.severity_level.CRITICAL)
-@pytest.mark.parametrize('name', TelemetryPage.SUBTABS)
-def test_subtab_switch(telemetry_page, name):
+@pytest.mark.parametrize(
+    'name,groups', SUBSYSTEM_CASES, ids=[name for name, _groups in SUBSYSTEM_CASES])
+def test_subsystem_fixed_parameters(telemetry_page, name, groups):
     telemetry_page.open_subtab(name)
-    expect(telemetry_page.subtab(name)).to_have_attribute('aria-selected', 'true')
-    for other in TelemetryPage.SUBTABS:
-        if other != name:
-            expect(telemetry_page.subtab(other)).to_have_attribute('aria-selected', 'false')
 
+    # 断言：切换结果和当前可见参数总数都与该分系统定义一致。
+    assert telemetry_page.selected_subtab() == name
+    expected_count = _parameter_count(groups)
+    assert telemetry_page.parameter_cards.count() == expected_count
 
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-分系统切换')
-@allure.title('5 个分系统连续来回切两轮，选中态始终跟手、不串页、不报错')
-@allure.severity(allure.severity_level.NORMAL)
-def test_subtabs_rapid_roundtrip(telemetry_page):
-    order = TelemetryPage.SUBTABS + list(reversed(TelemetryPage.SUBTABS))
-    for name in order:
-        telemetry_page.open_subtab(name)
-        assert telemetry_page.selected_subtab() == name, f'切到「{name}」后当前却是「{telemetry_page.selected_subtab()}」'
-    # 收尾停在第一个，面板仍健康
-    telemetry_page.open_subtab('供配电')
-    expect(telemetry_page.sim_control_heading).to_be_visible()
+    # 断言：每个分组里的参数顺序、名称和单位逐项一致。
+    for group_name, expected_parameters in groups.items():
+        group = telemetry_page.parameter_group(group_name)
+        expect(group).to_be_visible()
+        cards = telemetry_page.parameter_cards_in_group(group_name)
+        assert cards.count() == len(expected_parameters), (
+            f'「{name}/{group_name}」参数数应为 {len(expected_parameters)}，'
+            f'实际 {cards.count()}')
+        for index, (parameter_name, unit) in enumerate(expected_parameters):
+            lines = [line.strip() for line in cards.nth(index).inner_text().splitlines()
+                     if line.strip()]
+            assert lines[0] == parameter_name, (
+                f'「{name}/{group_name}」第 {index + 1} 项应为 {parameter_name}，实际 {lines}')
+            if unit:
+                assert any(unit in line for line in lines), (
+                    f'「{name}/{group_name}/{parameter_name}」应显示单位 {unit}，实际 {lines}')
 
 
 # ==================== 模拟节点 / 真实节点 ====================
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-节点模式')
-@allure.title('点「真实节点」→ 它被按下、「模拟节点」弹起；点回「模拟节点」复原')
+@allure.story('遥测主区-节点模式')
+@allure.title('真实节点显示不可用占位；切回模拟节点后供配电参数恢复')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_node_mode_toggle(telemetry_page):
-    assert telemetry_page.node_mode() == 'sim'          # 默认模拟节点
+def test_node_mode_switch_changes_content(telemetry_page):
+    # 断言：进入模块默认是可用的模拟节点模式。
+    assert telemetry_page.node_mode() == 'sim'
+    assert telemetry_page.parameter_cards.count() == 8
 
     telemetry_page.set_node_mode('real')
+
+    # 断言：真实节点模式不仅按钮变了，主区内容也切成明确占位状态。
     expect(telemetry_page.real_node_button).to_have_attribute('aria-pressed', 'true')
     expect(telemetry_page.sim_node_button).to_have_attribute('aria-pressed', 'false')
+    expect(telemetry_page.real_node_notice).to_be_visible()
+    assert telemetry_page.parameter_cards.count() == 0
 
     telemetry_page.set_node_mode('sim')
+
+    # 断言：切回后占位消失，默认分系统参数重新出现。
     expect(telemetry_page.sim_node_button).to_have_attribute('aria-pressed', 'true')
-    expect(telemetry_page.real_node_button).to_have_attribute('aria-pressed', 'false')
+    expect(telemetry_page.real_node_notice).to_be_hidden()
+    assert telemetry_page.parameter_cards.count() == 8
+
+
+# ==================== 场景 / 卫星 / 仿真节点 ====================
+
+@allure.feature('卫星遥测')
+@allure.story('场景与卫星')
+@allure.title('无卫星场景：卫星数为 0，无节点可启动，播放与暂停不可用')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_scene_without_satellites(empty_satellite_scenario):
+    tp = empty_satellite_scenario
+
+    # 断言：场景选择生效，且页面没有凭空生成卫星或节点。
+    expect(tp.satellite_select_label).to_contain_text(tp.selected_scenario['name'])
+    assert tp.configured_satellites == []
+    assert tp.satellite_count() == 0
+    assert tp.node_statuses() == {}
+
+    # 断言：没有卫星时，仿真循环的播放和暂停都不可用。
+    expect(tp.play_button).to_be_disabled()
+    expect(tp.pause_button).to_be_disabled()
+
+    tp.node_start_button.click()
+
+    # 断言：启动进程弹窗也没有可选卫星，不能真正拉起节点。
+    expect(tp.node_launch_dialog).to_be_visible()
+    tp.node_launch_satellite.click()
+    assert tp.node_launch_options.count() == 0
+    tp.page.keyboard.press('Escape')
+    expect(tp.node_launch_button).to_be_disabled()
+    tp.node_launch_close.click()
+    expect(tp.node_launch_dialog).to_be_hidden()
 
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-节点模式')
-@allure.title('切到「真实节点」显示「节点预留中，暂不可用」，切回「模拟节点」恢复正常')
-@allure.severity(allure.severity_level.NORMAL)
-def test_real_node_shows_reserved_notice(telemetry_page):
-    telemetry_page.set_node_mode('real')
-    expect(telemetry_page.real_node_notice).to_be_visible()
-    telemetry_page.set_node_mode('sim')
-    expect(telemetry_page.sim_control_heading).to_be_visible()
+@allure.story('场景与卫星')
+@allure.title('有卫星但节点未启动：卫星按钮和 STOPPED 节点存在，播放仍不可用')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_scene_with_stopped_satellites(stopped_satellite_scenario):
+    tp = stopped_satellite_scenario
+    expected_names = [item['name'] for item in tp.configured_satellites]
+
+    # 断言：配置中的卫星全部显示在选择区和节点区，但尚无活动卫星。
+    expect(tp.satellite_select_label).to_contain_text(tp.selected_scenario['name'])
+    for name in expected_names:
+        expect(tp.satellite_button(name).first).to_be_visible()
+    assert tp.node_statuses() == {name: 'STOPPED' for name in expected_names}
+    assert tp.active_satellite_names() == []
+    assert tp.satellite_count() == 0
+
+    # 断言：未启动任何节点时，不能播放或暂停仿真。
+    expect(tp.play_button).to_be_disabled()
+    expect(tp.pause_button).to_be_disabled()
+
+
+@allure.feature('卫星遥测')
+@allure.story('场景与卫星')
+@allure.title('多卫星场景：未启动卫星显示但不能选中，当前活动卫星保持选中')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_stopped_satellite_cannot_be_selected(multi_satellite_scenario):
+    tp = multi_satellite_scenario
+    active = tp.active_satellite_names()
+    stopped = [item['name'] for item in tp.configured_satellites if item['name'] not in active]
+    if not active or not stopped:
+        pytest.skip(f'需要同时存在活动和停止卫星，当前活动={active}，停止={stopped}')
+    selected_before = tp.selected_satellite()
+
+    tp.select_satellite(stopped[0])
+
+    # 断言：停止卫星仍展示在选择区，但不能成为遥测数据源。
+    expect(tp.satellite_button(stopped[0]).first).to_be_visible()
+    assert tp.selected_satellite() == selected_before
+
+
+@allure.feature('卫星遥测')
+@allure.story('仿真节点')
+@allure.title('启动一颗仿真节点后状态变为 RUNNING、活动卫星出现、播放键可用')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_started_node_enables_simulation(sim_ready_page):
+    tp = sim_ready_page
+    active = tp.active_satellite_names()
+
+    # 断言：至少一颗节点真正进入运行态。
+    assert active, '启动节点后应至少出现一颗活动卫星'
+    statuses = tp.node_statuses()
+    assert all(statuses[name] == 'RUNNING' for name in active)
+
+    # 断言：节点已就绪但仿真循环尚未启动，可以播放，不能暂停。
+    expect(tp.play_button).to_be_enabled()
+    expect(tp.pause_button).to_be_disabled()
+    # 当前产品把停止设计为幂等操作，空闲态仍保持可用。
+    expect(tp.stop_button).to_be_enabled()
 
 
 # ==================== 播放 / 暂停 / 停止 / 重置 ====================
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-播放控制')
-@allure.title('点▶启动：暂停键可用、播放键置灰，顶部 T 开始递增，实时曲线区出现')
+@allure.story('仿真控制-播放')
+@allure.title('点播放后仿真时间推进、实时曲线产生数据点，按钮切到运行态')
 @allure.severity(allure.severity_level.BLOCKER)
-def test_start_sim_runs_and_shows_curve(sim_ready_page):
+def test_start_sim_advances_time_and_curve(sim_ready_page):
     tp = sim_ready_page
-    expect(tp.pause_button).to_be_disabled()            # 启动前暂停不可用
+    points_before = tp.curve_point_count()
 
     tp.start_sim()
-    t = tp.wait_sim_time_advances()
-    assert t and t > 0, f'启动后顶部 T 未开始递增（读到 {t}）'
-    expect(tp.pause_button).to_be_enabled()
+    current_time = tp.wait_sim_time_advances()
+    points_after = tp.wait_curve_points_increase(points_before)
+
+    # 断言：仿真循环和实时曲线都真的工作，不只检查按钮点击成功。
+    assert current_time and current_time > 0
+    assert points_after > points_before
+
+    # 断言：运行态只能暂停或停止，不能重复播放。
     expect(tp.play_button).to_be_disabled()
-    expect(tp.curve_heading).to_be_visible()
-    expect(tp.curve_chart).to_be_visible()
+    expect(tp.pause_button).to_be_enabled()
+    expect(tp.stop_button).to_be_enabled()
 
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-播放控制')
-@allure.title('运行中点⏸暂停：仿真时间冻结、不再推进')
+@allure.story('仿真控制-暂停')
+@allure.title('运行中点暂停后仿真时间和曲线数据点都冻结，可继续播放或停止')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_pause_sim(running_sim):
+def test_pause_freezes_time_and_curve(running_sim):
     tp = running_sim
-    t1 = tp.sim_time() or 0
+    tp.wait_curve_points_increase()
     tp.pause_sim()
-    tp.page.wait_for_timeout(3000)
-    t2 = tp.sim_time() or 0
-    # 暂停后 T 基本冻结（放宽 2s，容忍暂停瞬间的最后一帧）
-    assert (t2 - t1) < 2.0, f'点暂停后仿真时间仍在推进：T {t1}s → {t2}s'
-    expect(tp.sim_control_heading).to_be_visible()
+    tp.page.wait_for_timeout(800)  # 等暂停前已在途的最后一帧落下。
+    time_paused = tp.sim_time()
+    points_paused = tp.curve_point_count()
+    tp.page.wait_for_timeout(2000)
+
+    # 断言：暂停后的观察窗口内，时间和曲线点数均不再变化。
+    assert tp.sim_time() == time_paused
+    assert tp.curve_point_count() == points_paused
+
+    # 断言：暂停态可以继续播放或停止，暂停键自身不可重复点击。
+    expect(tp.play_button).to_be_enabled()
+    expect(tp.pause_button).to_be_disabled()
+    expect(tp.stop_button).to_be_enabled()
 
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-播放控制')
-@allure.title('运行中点⏹停止：仿真结束，播放键恢复可用、暂停键置灰')
+@allure.story('仿真控制-停止')
+@allure.title('运行中点停止后时间和曲线冻结，播放恢复且暂停禁用')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_stop_sim(running_sim):
-    running_sim.stop_sim()
-    expect(running_sim.play_button).to_be_enabled()
-    expect(running_sim.pause_button).to_be_disabled()
+def test_stop_freezes_simulation(running_sim):
+    tp = running_sim
+    tp.wait_curve_points_increase()
+    tp.stop_sim()
+    tp.page.wait_for_timeout(800)
+    time_stopped = tp.sim_time()
+    points_stopped = tp.curve_point_count()
+    tp.page.wait_for_timeout(2000)
+
+    # 断言：停止后仿真时间和实时曲线均保持不动。
+    assert tp.sim_time() == time_stopped
+    assert tp.curve_point_count() == points_stopped
+
+    # 断言：停止态可以重新播放，暂停不可用；停止键作为幂等操作仍可用。
+    expect(tp.play_button).to_be_enabled()
+    expect(tp.pause_button).to_be_disabled()
+    expect(tp.stop_button).to_be_enabled()
 
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-播放控制')
-@allure.title('改速度档 + 运行后点「重置」：T 归零、速度回到 1x、进度归零')
+@allure.story('仿真控制-重置')
+@allure.title('运行并产生曲线后重置：时间、进度、速度和曲线数据全部回到初始值')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_reset_clears_progress(running_sim):
+def test_reset_restores_initial_state(running_sim):
     tp = running_sim
     tp.set_speed('8x')
-    assert tp.current_speed() == '8x'
+    assert tp.wait_curve_points_increase() > 0
 
     tp.reset_sim()
     tp.page.wait_for_timeout(800)
-    assert (tp.sim_time() or 0) == 0, f'重置后 T 应为 0，实际 {tp.sim_time()}'
-    assert tp.speed_is_active('1x'), '重置后速度档应回到 1x'
-    assert (tp.progress_percent() or 0) == 0
+
+    # 断言：所有仿真数据状态一起重置，不只检查速度文案。
+    assert tp.sim_time() == 0
+    assert tp.progress_percent() == 0
+    assert tp.current_speed() == '1x'
+    assert tp.curve_point_count() == 0
+
+    # 断言：重置后回到可播放、不可暂停的空闲态；停止键仍可幂等执行。
+    expect(tp.play_button).to_be_enabled()
+    expect(tp.pause_button).to_be_disabled()
+    expect(tp.stop_button).to_be_enabled()
 
 
 # ==================== 仿真速度 ====================
 
 @allure.feature('卫星遥测')
 @allure.story('仿真控制-速度')
-@allure.title('点速度档「{speed}」→「速度: {speed}」文案更新，该档高亮为当前档')
-@allure.severity(allure.severity_level.CRITICAL)
+@allure.title('预设倍速「{speed}」同步更新状态文案和唯一高亮档位')
+@allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.parametrize('speed', TelemetryPage.SPEEDS)
-def test_speed_preset(telemetry_page, speed):
+def test_speed_preset_state(telemetry_page, speed):
     telemetry_page.set_speed(speed)
-    expect(telemetry_page.speed_label).to_contain_text(f'速度: {speed}')
+
+    # 断言：状态文案与所点档位一致。
     assert telemetry_page.current_speed() == speed
     assert telemetry_page.speed_is_active(speed)
 
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-速度')
-@allure.title('速度档 16x → 1x 来回切，文案与高亮同步')
-@allure.severity(allure.severity_level.NORMAL)
-def test_speed_preset_roundtrip(telemetry_page):
-    telemetry_page.set_speed('16x')
-    assert telemetry_page.current_speed() == '16x'
-    telemetry_page.set_speed('1x')
-    assert telemetry_page.current_speed() == '1x'
-    assert telemetry_page.speed_is_active('1x')
-    assert not telemetry_page.speed_is_active('16x')
+    # 断言：其余预设档位没有残留高亮。
+    for other in TelemetryPage.SPEEDS:
+        if other != speed:
+            assert not telemetry_page.speed_is_active(other)
 
 
 @allure.feature('卫星遥测')
 @allure.story('仿真控制-速度')
-@allure.title('自定义倍速输入框可填写、「应用」可点击，操作后面板不报错')
-@allure.severity(allure.severity_level.NORMAL)
-def test_custom_speed_clickable(telemetry_page):
-    # 只验证"能填、能点、不崩"；自定义倍速是否真正生效不在本用例断言范围内
-    expect(telemetry_page.custom_speed_input).to_be_visible()
-    telemetry_page.set_custom_speed('0.1')
-    expect(telemetry_page.custom_speed_input).to_have_value('0.1')
-    expect(telemetry_page.sim_control_heading).to_be_visible()
-
-
-# ==================== 进度读数 ====================
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-进度读数')
-@allure.title('进度 / 卫星数 / 链路数 / 队列深度 四项均能读到数字')
-@allure.severity(allure.severity_level.NORMAL)
-def test_counters_readable(telemetry_page):
-    tp = telemetry_page
-    for name, val in (('进度', tp.progress_percent()), ('卫星数', tp.satellite_count()),
-                      ('链路数', tp.link_count()), ('队列深度', tp.queue_depth())):
-        assert isinstance(val, int) and val >= 0, f'「{name}」读到的不是非负整数：{val!r}'
-
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-进度读数')
-@allure.title('点▶启动等待片刻，顶部 T 由 0 变为大于 0')
+@allure.title('各运行 1 秒，8x 的仿真时间和曲线点增量都大于 1x')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_time_advances_after_start(sim_ready_page):
-    assert (sim_ready_page.sim_time() or 0) == 0
-    sim_ready_page.start_sim()
-    t = sim_ready_page.wait_sim_time_advances()
-    assert t and t > 0, f'启动后等待仍未见 T 递增（读到 {t}）'
-
-
-# ==================== 保存快照 / 加载断点 ====================
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-快照与断点')
-@allure.title('运行中「保存快照」并命名 → 提示「快照已保存」')
-@allure.severity(allure.severity_level.CRITICAL)
-# 收尾会删断点条目，同 test_snapshot_appears_and_deletable，偶发前端报错 "V"，豁免兜底。
-@pytest.mark.allow_page_errors
-def test_save_snapshot_shows_toast(running_sim):
-    tp = running_sim
-    # 保存快照按钮在仿真启动后才可用
-    expect(tp.save_snapshot_button).to_be_enabled()
-    name = f'AUTOTEST-SNAP-{int(time.time() * 1000)}'
-    tp.save_snapshot(name)
-    expect(tp.snackbar_message).to_contain_text('快照已保存')
-    # 收尾：删掉本条快照，避免持久化到后端堆积
-    tp.open_breakpoint_dialog()
-    tp.delete_breakpoint(name)
-    tp.close_breakpoint_dialog()
-
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-快照与断点')
-@allure.title('保存快照后点「加载断点」，「断点恢复」弹窗里能看到该快照，并可删除')
-@allure.severity(allure.severity_level.CRITICAL)
-# 现状：删除断点条目会偶发触发一个前端未捕获报错（错误文本仅 "V"），
-# 功能本身（条目消失）正常。豁免 fail_on_page_error 兜底，缺陷另见缺陷清单。
-@pytest.mark.allow_page_errors
-def test_snapshot_appears_and_deletable_in_breakpoint_dialog(running_sim):
-    tp = running_sim
-    name = f'AUTOTEST-SNAP-{int(time.time() * 1000)}'
-    tp.save_snapshot(name)
-    expect(tp.snackbar_message).to_contain_text('快照已保存')
-
-    tp.open_breakpoint_dialog()
-    expect(tp.breakpoint_dialog).to_be_visible()
-    expect(tp.breakpoint_entry(name)).to_be_visible()      # 出现在断点弹窗
-
-    tp.delete_breakpoint(name)
-    expect(tp.breakpoint_entry(name)).to_have_count(0)     # 删掉后消失
-    tp.close_breakpoint_dialog()
-
-
-# ==================== 卫星选择 / 仿真节点 ====================
-
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-卫星选择')
-@allure.title('有卫星场景：接口返回的活动卫星按钮均可见，存在多个时可来回切换')
-@allure.severity(allure.severity_level.NORMAL)
-def test_satellite_buttons_clickable(sim_ready_page):
+def test_speed_changes_time_and_curve_rate(sim_ready_page):
     tp = sim_ready_page
-    names = [s['name'] for s in tp.configured_satellites]
-    visible = tp.wait_active_satellites()
-    assert set(visible) <= set(names)
-    for name in visible:
-        expect(tp.satellite_button(name).first).to_be_visible()
-    if len(visible) > 1:
-        tp.select_satellite(visible[1])
-        tp.page.wait_for_timeout(500)
-        tp.select_satellite(visible[0])
-    expect(tp.sim_control_heading).to_be_visible()
+
+    # 1x：从运行态观察 1 秒内的 T 和曲线增量。
+    tp.set_speed('1x')
+    tp.start_sim()
+    tp.wait_sim_time_advances()
+    tp.wait_curve_points_increase()
+    one_x_time_start = tp.sim_time() or 0
+    one_x_points_start = tp.curve_point_count()
+    tp.page.wait_for_timeout(1000)
+    one_x_time_delta = (tp.sim_time() or 0) - one_x_time_start
+    one_x_points_delta = tp.curve_point_count() - one_x_points_start
+
+    # 运行中切到 8x；先固定等 1 秒让异步速度更新落地，再观察后续 1 秒。
+    tp.set_speed('8x')
+    tp.page.wait_for_timeout(1000)
+    assert tp.current_speed() == '8x'
+    assert tp.speed_is_active('8x')
+    assert not tp.speed_is_active('1x')
+
+    eight_x_time_start = tp.sim_time() or 0
+    eight_x_points_start = tp.curve_point_count()
+    tp.page.wait_for_timeout(1000)
+    eight_x_time_delta = (tp.sim_time() or 0) - eight_x_time_start
+    eight_x_points_delta = tp.curve_point_count() - eight_x_points_start
+    tp.pause_sim()
+
+    # 断言：相同 1 秒观察窗内，8x 的 T 推进量必须大于 1x。
+    assert one_x_time_delta > 0
+    assert eight_x_time_delta > one_x_time_delta, (
+        f'1x 的 T 增量={one_x_time_delta}s，8x 的 T 增量={eight_x_time_delta}s')
+
+    # 断言：相同 1 秒观察窗内，8x 产生的曲线点也必须更多。
+    assert one_x_points_delta > 0
+    assert eight_x_points_delta > one_x_points_delta, (
+        f'1x 新增曲线点={one_x_points_delta}，8x 新增曲线点={eight_x_points_delta}')
+
+
+# ==================== 运行读数 / 快照断点 ====================
+
+@allure.feature('卫星遥测')
+@allure.story('仿真控制-运行读数')
+@allure.title('仿真运行时进度、链路数和队列深度均为非负整数')
+@allure.severity(allure.severity_level.NORMAL)
+def test_running_counters_are_non_negative_integers(running_sim):
+    tp = running_sim
+
+    # 断言：进度、链路和队列深度是有效运行读数。
+    for name, value in (
+            ('进度', tp.progress_percent()),
+            ('链路数', tp.link_count()),
+            ('队列深度', tp.queue_depth())):
+        assert isinstance(value, int) and value >= 0, f'「{name}」不是非负整数：{value!r}'
 
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-仿真节点')
-@allure.title('仿真节点面板：「启动」按钮可用，每个节点行都有停止图标按钮')
-@allure.severity(allure.severity_level.NORMAL)
-def test_node_controls_present(sim_ready_page):
-    expect(sim_ready_page.node_start_button).to_be_visible()
-    assert sim_ready_page.node_stop_buttons.count() >= 1
+@allure.story('仿真控制-运行读数')
+@allure.title('仿真运行 1 秒后，卫星数等于活动节点数')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_running_satellite_count_matches_active_nodes(running_sim):
+    tp = running_sim
+    active = tp.active_satellite_names()
 
+    # 页面读数刷新较慢；节点 RUNNING、T 已推进后再固定等待 1 秒。
+    assert active
+    tp.page.wait_for_timeout(1000)
 
-# ==================== 实时曲线时间窗 ====================
+    # 断言：给足一次刷新时间后，卫星数必须等于实际活动节点数。
+    assert tp.satellite_count() == len(active), (
+        f'场景「{tp.selected_scenario["name"]}」活动节点为 {active}，'
+        f'固定等待 1 秒后卫星数仍为 {tp.satellite_count()}')
+
 
 @allure.feature('卫星遥测')
-@allure.story('仿真控制-实时曲线')
-@allure.title('实时曲线时间窗档「{rng}」可点击，点击后成为当前档')
-@allure.severity(allure.severity_level.NORMAL)
-@pytest.mark.parametrize('rng', TelemetryPage.CURVE_RANGES)
-def test_curve_range_switch(telemetry_page, rng):
-    telemetry_page.set_curve_range(rng)
-    telemetry_page.page.wait_for_timeout(300)
-    assert telemetry_page.curve_range_is_active(rng), f'点「{rng}」后它未成为当前档'
+@allure.story('仿真控制-快照与断点')
+@allure.title('保存快照后条目可见；继续运行再加载该断点，仿真时间回到保存点')
+@allure.severity(allure.severity_level.CRITICAL)
+# 删除快照做隔离清理时，产品偶发抛出文本为 "V" 的前端错误；功能断言仍严格执行。
+@pytest.mark.allow_page_errors
+def test_snapshot_restore_rewinds_simulation(running_sim):
+    tp = running_sim
+    name = f'AUTOTEST-SNAP-{int(time.time() * 1000)}'
+    saved_at = tp.sim_time() or 0
 
+    tp.save_snapshot(name)
 
-# ==================== 批量修改 ====================
+    # 断言：保存动作成功，断点弹窗中出现唯一命名条目。
+    expect(tp.snackbar_message).to_contain_text('快照已保存')
+    tp.open_breakpoint_dialog()
+    expect(tp.breakpoint_entry(name)).to_have_count(1)
+    tp.close_breakpoint_dialog()
 
-@allure.feature('卫星遥测')
-@allure.story('仿真控制-批量修改')
-@allure.title('勾选遥测参数后「批量修改」由灰变亮，点开弹出对话框，取消可关闭')
-@allure.severity(allure.severity_level.NORMAL)
-def test_batch_edit_opens_after_select(telemetry_page):
-    tp = telemetry_page
-    expect(tp.batch_edit_button).to_be_disabled()       # 未勾选时置灰
-    tp.select_first_param()
-    expect(tp.batch_edit_button).to_be_enabled()
+    tp.page.wait_for_timeout(2200)
+    advanced_to = tp.sim_time() or 0
+    assert advanced_to > saved_at
 
-    tp.open_batch_edit()
-    expect(tp.batch_edit_dialog).to_be_visible()
-    tp.close_batch_edit()
-    expect(tp.batch_edit_dialog).to_have_count(0)
+    tp.open_breakpoint_dialog()
+    tp.apply_breakpoint(name)
+    tp.page.wait_for_timeout(800)
+    restored_to = tp.sim_time() or 0
+
+    # 断言：加载断点真正恢复时间，而不是只关闭弹窗或弹提示。
+    assert restored_to < advanced_to
+    assert abs(restored_to - saved_at) <= 1.5, (
+        f'断点应恢复到约 {saved_at}s，实际 {restored_to}s（恢复前 {advanced_to}s）')
+
+    # 清理：只删除本用例创建的唯一 AUTOTEST 快照。
+    if tp.breakpoint_dialog.is_visible():
+        tp.close_breakpoint_dialog()
+    tp.open_breakpoint_dialog()
+    tp.delete_breakpoint(name)
+    expect(tp.breakpoint_entry(name)).to_have_count(0)
+    tp.close_breakpoint_dialog()

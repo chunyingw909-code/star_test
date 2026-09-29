@@ -24,6 +24,9 @@ class FreeTablePage(FreeLayoutPage):
     BIND_NEED_COLUMN_HINT = '请至少选择一个展示列'
     # 关闭分页时最多渲染多少行
     UNPAGED_ROW_CAP = 200
+    # 同一 pytest 进程里，第一次从真实 UI 找到可用表后复用这条级联路径。
+    # 只缓存名字，不缓存页面元素；路径失效时 bind_pick_table 会自动回退重新发现。
+    _cached_binding_path = None
     # 单击事件：只有单击的弹窗提示 / 跳转 URL 生效，双击及其余动作不触发（同图表）
 
     def __init__(self, page):
@@ -67,8 +70,15 @@ class FreeTablePage(FreeLayoutPage):
         self.column_menu_button = page.get_by_role('button', name='列显示')
         # 表格滚动容器（最大高度作用在它上面）
         self.widget_table_container = self.widget.locator('.MuiTableContainer-root')
+        self.widget_body = self.widget.locator('tbody')
         # 分页控件
         self.widget_pager = self.widget.locator('.MuiTablePagination-root')
+        self.widget_pager_text = self.widget_pager.locator(
+            '.MuiTablePagination-displayedRows')
+        self.widget_pager_previous = self.widget_pager.get_by_role(
+            'button', name='Go to previous page')
+        self.widget_pager_next = self.widget_pager.get_by_role(
+            'button', name='Go to next page')
 
     # ==================== 定位（要带参数的写成方法）====================
 
@@ -105,6 +115,31 @@ class FreeTablePage(FreeLayoutPage):
         headers = self.widget_headers()
         idx = headers.index(header_name) + 1
         return self.widget.locator(f'tbody tr td:nth-child({idx})').all_inner_texts()
+
+    def all_column_values(self, header_name):
+        """从当前分页端点收集整列，返回值始终保持第一页到最后一页的顺序。
+
+        排序用例第一次读取从第一页向后、第二次读取从最后一页向前，避免每次都先
+        逐页退回第一页，数据较多时也不会把时间浪费在重复翻页上。
+        """
+        if self.widget_pager_previous.is_disabled():
+            values = list(self.widget_column_values(header_name))
+            while not self.widget_pager_next.is_disabled():
+                self._turn_page(self.widget_pager_next)
+                values.extend(self.widget_column_values(header_name))
+            return values
+
+        if self.widget_pager_next.is_disabled():
+            pages = [list(self.widget_column_values(header_name))]
+            while not self.widget_pager_previous.is_disabled():
+                self._turn_page(self.widget_pager_previous)
+                pages.append(list(self.widget_column_values(header_name)))
+            return [value for page in reversed(pages) for value in page]
+
+        # 非端点调用时先退到第一页，再走完整结果集。
+        while not self.widget_pager_previous.is_disabled():
+            self._turn_page(self.widget_pager_previous)
+        return self.all_column_values(header_name)
 
     def bind_field(self, label):
         """绑定弹窗里某个下拉（级联的，按 label 精确取不按顺序取）。"""
@@ -144,7 +179,7 @@ class FreeTablePage(FreeLayoutPage):
         return combobox, listbox.get_by_role('option').all_inner_texts()
 
     def bind_choose(self, label, name):
-        """在绑定弹窗某个下拉选中一项，并等下一级刷出来。"""
+        """在绑定弹窗某个下拉选中一项；调用方通过下一级选项等待加载完成。"""
         current = self.bind_field(label).inner_text().strip()
         if current == name:
             return
@@ -152,18 +187,46 @@ class FreeTablePage(FreeLayoutPage):
         assert name in names, f'「{label}」当前选项里没有 {name!r}：{names}'
         self.page.locator('[role="listbox"]:visible').last \
             .get_by_role('option', name=name, exact=True).click()
-        self.page.wait_for_timeout(2000)
+
+    def _pick_cached_table(self, path):
+        """尝试复用本次测试会话已验证过的级联路径；任一级失效就返回 None。"""
+        try:
+            self.bind_choose('关系型数据源', path['数据源'])
+            _, schemas = self.bind_options('Schema')
+            if path['Schema'] not in schemas:
+                self.page.keyboard.press('Escape')
+                return None
+            self.page.locator('[role="listbox"]:visible').last \
+                .get_by_role('option', name=path['Schema'], exact=True).click()
+
+            _, tables = self.bind_options('数据表')
+            if path['数据表'] not in tables:
+                self.page.keyboard.press('Escape')
+                return None
+            self.page.locator('[role="listbox"]:visible').last \
+                .get_by_role('option', name=path['数据表'], exact=True).click()
+            self.bind_column_checkboxes.first.wait_for(state='visible', timeout=10000)
+            return dict(path)
+        except Exception:
+            self.page.keyboard.press('Escape')
+            return None
 
     def bind_pick_table(self):
-        """走到「选完数据表」：把【每个数据源】都试一遍，每个数据源下【每个 Schema】
-        都试一遍，用上第一张底下真有表的。不写死任何库表名，两个数据源也好、
-        五个也好，一个一个试到有为止。
+        """走到「选完数据表」。优先复用本次 pytest 会话已验证过的路径；
+        首次或缓存失效时才遍历数据源和 Schema，找到第一张可用表并缓存。
+        不写死任何库表名，环境变化后仍能自动重新发现。
         返回一路选中的 {数据源, Schema, 数据表}。
         """
         _, sources = self.bind_options('关系型数据源')
         assert sources, '「关系型数据源」下拉里一个可选项都没有，后端没登记数据源？'
         self.page.keyboard.press('Escape')
-        self.page.wait_for_timeout(400)
+
+        cached = type(self)._cached_binding_path
+        if cached and cached.get('数据源') in sources:
+            chosen = self._pick_cached_table(cached)
+            if chosen:
+                return chosen
+            type(self)._cached_binding_path = None
 
         for source in sources:
             self.bind_choose('关系型数据源', source)
@@ -171,29 +234,30 @@ class FreeTablePage(FreeLayoutPage):
 
             _, schemas = self.bind_options('Schema')
             if not schemas:
+                self.page.keyboard.press('Escape')
                 continue
 
             # public 在当前环境为空；选中空 Schema 后组件无法再次展开，所以先试
             # 业务 Schema，把 public 留作最后的兜底。
             schemas = [schema for schema in schemas if schema != 'public'] + \
                       [schema for schema in schemas if schema == 'public']
+            self.page.keyboard.press('Escape')
 
-            for index, schema in enumerate(schemas):
-                # bind_options 已把菜单保持在打开状态；首项直接点击，避免单一
-                # Schema 的下拉关闭后无法再次展开。后续项才重新打开下拉。
-                if index == 0:
-                    self.page.locator('[role="listbox"]:visible').last \
-                        .get_by_role('option', name=schema, exact=True).click()
-                    self.page.wait_for_timeout(1500)
-                else:
-                    self.bind_choose('Schema', schema)
-                _, tables = self.bind_options('数据表')
+            for schema in schemas:
+                self.bind_choose('Schema', schema)
+                # 空 Schema 底下这个下拉根本不会弹出来，用默认 10 秒超时去等
+                # 一个不存在的东西——数据源、Schema 一多，第一次发现路径时
+                # 全靠空跑烧时间。这里砍到 1.5 秒，其余逻辑不变。
+                _, tables = self.bind_options('数据表', timeout_ms=1500)
                 if tables:
-                    self.page.get_by_role('option').first.click()
-                    self.page.wait_for_timeout(2000)
-                    return {'数据源': source, 'Schema': schema, '数据表': tables[0]}
+                    table = tables[0]
+                    self.page.locator('[role="listbox"]:visible').last \
+                        .get_by_role('option', name=table, exact=True).click()
+                    self.bind_column_checkboxes.first.wait_for(state='visible', timeout=10000)
+                    chosen = {'数据源': source, 'Schema': schema, '数据表': table}
+                    type(self)._cached_binding_path = dict(chosen)
+                    return chosen
                 self.page.keyboard.press('Escape')
-                self.page.wait_for_timeout(400)
 
         raise AssertionError(f'这些数据源 {sources} 底下的所有 Schema 都没有表')
 
@@ -218,12 +282,40 @@ class FreeTablePage(FreeLayoutPage):
 
     # ==================== 画布操作 ====================
 
+    def _turn_page(self, button):
+        """翻一页并等页码、表格行都变化，避免读取到上一页的数据。"""
+        before_page = self.widget_pager_text.inner_text()
+        before_rows = self.widget_body.inner_text()
+        button.click()
+        for _ in range(50):
+            page_changed = self.widget_pager_text.inner_text() != before_page
+            rows_changed = self.widget_body.inner_text() != before_rows
+            if page_changed and rows_changed:
+                return
+            self.page.wait_for_timeout(100)
+        raise AssertionError(f'翻页后表格未更新：{before_page!r}')
+
     def sort_by(self, header_name):
-        """点某一列的排序表头。"""
+        """用排序按钮的键盘交互切换升/降序，并等待当前页顺序变化。
+
+        MUI 排序按钮支持聚焦后按 Enter。相比 locator.click()，这不会在可滚动的
+        grid 组件里额外滚动画布，也不会被 TableContainer 的命中测试误拦截。
+        """
         headers = self.widget_headers()
         idx = headers.index(header_name)
-        self.widget_sort_labels().nth(idx).click()
-        self.page.wait_for_timeout(1500)
+        label = self.widget_sort_labels().nth(idx)
+        before = self.widget_column_values(header_name)
+        label.focus()
+        self.page.keyboard.press('Enter')
+
+        deadline = self.page.evaluate('Date.now()') + 5000
+        while self.page.evaluate('Date.now()') < deadline:
+            current = self.widget_column_values(header_name)
+            if current != before:
+                return
+            self.page.wait_for_timeout(100)
+        raise AssertionError(
+            f'点击排序表头「{header_name}」后当前页数据顺序未变化：{before}')
 
     def filter_column(self, header_name, text):
         """在某列的筛选框里输入内容并等结果稳定。"""

@@ -88,6 +88,15 @@ def test_graph_renders(fault_detail_page):
     assert box and box['width'] > 0 and box['height'] > 0
     # 断言：有「搜索节点...」框
     expect(d.graph_search_input).to_be_visible()
+    graph = d.wait_graph()
+    # 断言：G6 真画出了当前这条故障（故障模式节点），并且有连线
+    fault_nodes = [
+        node for node in graph['nodes']
+        if node['nodeType'] == 'faultMode' and node['label'] == d.opened['name']
+    ]
+    assert fault_nodes, (
+        f"关系图里没有故障模式节点「{d.opened['name']}」，实际 {[n['label'] for n in graph['nodes']]}")
+    assert graph['edges'], '关系图画出来了节点，但没有任何连线'
 
 
 @allure.feature('故障/预案库')
@@ -129,11 +138,15 @@ def test_graph_node_click_detail(fault_detail_page):
     # 断言：没点节点时没有详情卡
     expect(d.graph_detail_card).to_have_count(0)
 
-    assert d.click_a_node(), '关系图已渲染，但扫描预期节点位置仍无法点出详情卡'
-    # 断言：点中节点 → 出现 1 张详情卡
+    node = d.pick_highlight_node()
+    d.click_graph_node(node['id'])
+    # 断言：点中的节点和它的邻居画出白色加粗描边，其余节点/连线保持原色
+    d.wait_highlight_around(node['id'])
+    # 断言：点中节点 → 出现 1 张详情卡，类别和名称就是这个节点，不是图例里随便一个词
     expect(d.graph_detail_card).to_have_count(1)
-    # 断言：详情卡带节点类别（图例里的某个词）
-    expect(d.graph_detail_card).to_contain_text(re.compile('|'.join(FaultDetailPage.GRAPH_LEGEND)))
+    kind = FaultDetailPage.NODE_KIND[node['nodeType']]
+    expect(d.graph_detail_card).to_contain_text(kind)
+    expect(d.graph_detail_card).to_contain_text(node['label'])
     # 断言：详情卡在画布左下区域
     cb, g = d.graph_detail_card.bounding_box(), d.graph_canvas.first.bounding_box()
     assert cb['x'] < g['x'] + g['width'] / 2, f'详情卡不在左侧：{cb} vs {g}'
@@ -148,33 +161,35 @@ def test_graph_detail_card_dismiss(fault_detail_page):
     d = fault_detail_page
     d.open_tab('关系图')
 
-    assert d.click_a_node(), '关系图已渲染，但扫描预期节点位置仍无法点出详情卡'
+    assert d.click_a_node(), '关系图已渲染，但点故障模式节点没有弹出详情卡'
     expect(d.graph_detail_card).to_have_count(1)
     d.graph_detail_close.click()
     # 断言：点 × 详情卡关闭
     expect(d.graph_detail_card).to_have_count(0)
 
-    assert d.click_a_node(), '关闭详情卡后无法再次选中关系图节点'
+    assert d.click_a_node(), '关闭详情卡后无法再次点中故障模式节点'
     expect(d.graph_detail_card).to_have_count(1)
     d.click_graph_blank()
     # 断言：点画布空白处详情卡也关闭
     expect(d.graph_detail_card).to_have_count(0)
+    # 断言：空白点击同时把白色加粗描边清掉，节点和连线回到原色
+    d.wait_highlight_cleared()
 
 
 @allure.feature('故障/预案库')
 @allure.story('故障详情')
-@allure.title('关系图：搜索框可输入、回车后画布不崩')
+@allure.title('关系图：搜索命中的节点白色加粗并居中，其余保持原色')
 @allure.severity(allure.severity_level.NORMAL)
 def test_graph_search_input(fault_detail_page):
-    # 搜索命中后「节点居中 + 高亮」画在 canvas 上，DOM 看不到，这里只验证交互不报错。
     # 搜当前这条故障自己的名字——它必然是图里的一个节点，不写死。
     d = fault_detail_page
     d.open_tab('关系图')
     kw = d.opened['name']
-    d.graph_search_input.fill(kw)
+    d.search_graph_node(kw)
     expect(d.graph_search_input).to_have_value(kw)
-    d.graph_search_input.press('Enter')
-    # 断言：搜索后关系图 canvas 仍在
+    # 断言：命中的节点画出白色加粗描边并居中，其余节点和连线保持原色；画布还在
+    hit, _painted = d.wait_search_highlight(kw)
+    assert hit['label'] == kw or kw.lower() in hit['label'].lower()
     expect(d.graph_canvas.first).to_be_visible()
 
 
@@ -182,7 +197,7 @@ def test_graph_search_input(fault_detail_page):
 
 @allure.feature('故障/预案库')
 @allure.story('故障详情')
-@allure.title('处置预案：卡片含步骤列表、预期效果、版本，以及查看详情/仿真验证按钮')
+@allure.title('处置预案：卡片含步骤列表、预期效果、版本，以及查看详情按钮')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_disposal_plan_tab(fault_detail_page):
     d = fault_detail_page
@@ -192,9 +207,8 @@ def test_disposal_plan_tab(fault_detail_page):
     # 断言：有「预期效果」和「版本」字段
     expect(d.root).to_contain_text('预期效果')
     expect(d.root).to_contain_text('版本')
-    # 断言：有「查看详情」「仿真验证」两个按钮
+    # 断言：有「查看详情」。仿真验证不是每张预案都有，这里不断言。
     expect(d.plan_detail_button).to_be_visible()
-    expect(d.sim_verify_button).to_be_visible()
 
 
 @allure.feature('故障/预案库')
@@ -226,6 +240,26 @@ def test_disposal_plan_empty_state(catalog_page):
     # 断言：没有预案卡片、没有「查看详情」按钮
     expect(d.plan_cards()).to_have_count(0)
     expect(d.plan_detail_button).to_have_count(0)
+
+
+@allure.feature('故障/预案库')
+@allure.story('故障详情')
+@allure.title('定位规则：无规则的故障点进去显示「暂未关联定位规则」，不崩')
+@allure.severity(allure.severity_level.NORMAL)
+def test_locate_rules_empty_state(catalog_page):
+    picked = catalog_page.open_first_fault_without_rules()
+    if picked is None:
+        pytest.skip('目录当前页没有「定位规则 = 0」的故障')
+    d = FaultDetailPage(catalog_page.page)
+    d.open_tab('定位规则')
+    # 断言：子 tab 计数是 (0)
+    assert d.tab_count('定位规则') == 0
+    # 断言：tab 切过去了（渲染没崩）
+    expect(d.tab('定位规则')).to_have_attribute('aria-selected', 'true')
+    # 断言：显示空态文案，而不是空白或报错
+    expect(d.rules_empty_hint).to_be_visible()
+    # 断言：没有规则行
+    expect(d.rule_rows()).to_have_count(0)
 
 
 @allure.feature('故障/预案库')

@@ -15,6 +15,9 @@ class FaultLibraryPage:
         self.nav_entry = self.page.get_by_role('tab', name='故障/预案库', exact=True)
         # 进入模块的标志元素：子标签「目录」（进本模块不改 URL，靠子标签出现来判断）
         self.breadcrumb = self.tab('目录')
+        # 头像菜单也是进入独立路由版「故障管理」的入口
+        self.user_menu_button = self.page.get_by_title('用户菜单')
+        self.fault_management_menu_item = self.page.get_by_role('menuitem', name='故障管理')
 
     def open(self):
         """点顶部「故障/预案库」Tab，等子标签渲染出来。"""
@@ -31,3 +34,10 @@ class FaultLibraryPage:
     def open_tab(self, name):
         """点某个子标签。不在这里写死等待——由调用方的 expect(...) 自动等待到位。"""
         self.tab(name).click()
+
+    def open_management_from_user_menu(self):
+        """从右上角头像菜单进入独立路由版「故障管理」。"""
+        self.user_menu_button.click()
+        self.fault_management_menu_item.click()
+        self.page.wait_for_url('**/zh-CN/fault/admin')
+        self.page.get_by_role('heading', name='故障库管理').wait_for(state='visible')

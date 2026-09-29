@@ -46,6 +46,8 @@ class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
         self.widget_slot = self.widget.locator('div[style*="grid-template-columns"]').first
         # 槽位里的子组件，一个子组件占一个直接子元素
         self.children = self.widget_slot.locator('> div')
+        # 用于确认大量子组件重排后页面没有显示崩溃文案
+        self.body = page.locator('body')
         # 删除按钮：容器自己的 / 容器内子组件的，类名不同，别混
         self.delete_button = self.widget.locator('button.gridstack-remove')
         self.child_delete_button = self.widget.locator('button.gridstack-remove-child')
@@ -71,35 +73,13 @@ class FreeContainerPage(CommonStyleMixin, FreeLayoutPage):
         self.component_item(name).click()
         self.page.wait_for_timeout(800)
 
-    def canvas_column_count(self):
-        """画布上内部 grid 实际有几列（读 computed grid-template-columns 的轨道数）。"""
+    def grid_column_widths(self):
+        """读取画布中 CSS Grid 的实际列宽；列表长度就是当前列数。"""
         tracks = self.widget_slot.evaluate(
             "el => getComputedStyle(el).gridTemplateColumns")
         if not tracks or tracks == 'none':
-            return 0
-        return len(tracks.split())
-
-    def canvas_gap_px(self):
-        """画布上内部 grid 的列间距，像素整数。"""
-        raw = self.widget_slot.evaluate("el => getComputedStyle(el).columnGap")
-        return round(float(str(raw).replace('px', '') or 0))
-
-    def child_boxes(self):
-        """每个子组件的视口矩形 {x, y, w, h}。"""
-        return self.children.evaluate_all("""els => els.map(el => {
-            const r = el.getBoundingClientRect();
-            return {x: r.x, y: r.y, w: r.width, h: r.height};
-        })""")
-
-    def child_rows(self, tol=8):
-        """按 y 把子组件收成行（同一行 y 差不超过 tol）。"""
-        rows = []
-        for box in sorted(self.child_boxes(), key=lambda b: (b['y'], b['x'])):
-            if not rows or abs(box['y'] - rows[-1][0]['y']) > tol:
-                rows.append([box])
-            else:
-                rows[-1].append(box)
-        return rows
+            return []
+        return [float(value.removesuffix('px')) for value in tracks.split()]
 
     def select_child(self, index=0):
         """点选容器内第 index 个子组件，右侧切到它的属性面板。"""

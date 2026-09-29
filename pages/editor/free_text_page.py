@@ -1,3 +1,5 @@
+import re
+
 from pages.editor.common_style_props import CommonStyleMixin
 from pages.editor.free_layout_page import FreeLayoutPage
 
@@ -9,7 +11,7 @@ class FreeTextPage(CommonStyleMixin, FreeLayoutPage):
     # 「图标」的选项 -> 画布上出现的那个图标的 data-testid（'无' 表示不出图标）
     ICONS = {'无': None, '信息': 'InfoIcon', '警告': 'WarningIcon', '告警': 'NotificationsIcon'}
     # 「字重」的选项 -> 画布 font-weight
-    WEIGHTS = {'正常': '400', '中等': '500', '粗体': '700'}
+    WEIGHTS = {'正常': '400', '中等': '600', '粗体': '700'}
 
     def __init__(self, page):
         super().__init__(page)
@@ -29,6 +31,9 @@ class FreeTextPage(CommonStyleMixin, FreeLayoutPage):
         self.prop_click_action = page.locator('.MuiFormControl-root', has_text='点击事件').get_by_role('combobox')
         self.prop_click_target = page.get_by_label('点击目标 (URL 或消息)')
 
+        # 动态绑定成功后画布显示的实时状态
+        self.widget_live = self.canvas_widgets().first.get_by_test_id('text-binding-state')
+
     # ==================== 画布上的元素 ====================
 
     def widget_text(self, index=0):
@@ -42,3 +47,10 @@ class FreeTextPage(CommonStyleMixin, FreeLayoutPage):
     def widget_icon(self, testid, index=0):
         """画布上那个图标。testid 取自 ICONS，如 'WarningIcon'。"""
         return self.canvas_widgets().nth(index).locator(f'svg[data-testid="{testid}"]')
+
+    def live_value(self, index=0):
+        """从动态文本的“数值 + 单位”中读出数值部分。"""
+        raw = self.widget_text(index).inner_text()
+        match = re.search(r'-?\d+(?:\.\d+)?', raw)
+        assert match, f'动态文本没有显示数值：{raw!r}'
+        return float(match.group())

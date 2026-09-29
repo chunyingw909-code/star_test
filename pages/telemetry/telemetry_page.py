@@ -2,6 +2,8 @@ import re
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from common import echarts_option as eco
+
 
 class TelemetryPage:
     """卫星遥测模块 + 左侧「仿真控制」面板 —— 合成一个页面对象。
@@ -24,6 +26,34 @@ class TelemetryPage:
 
     # 主区分系统子标签（role=tab，靠 aria-selected 标当前）
     SUBTABS = ['供配电', '测控', '综合电子', '姿轨控', '设备接口']
+    # 主区固定参数清单：分系统 -> 分组 -> [(参数名, 单位)]。
+    # 这些是产品定义，不随场景和卫星变化；测试用它同时校验分组、参数、单位和总数。
+    SUBSYSTEM_PARAMETERS = {
+        '供配电': {
+            '太阳阵': [('电压', 'V'), ('电流', 'A'), ('功率', 'W')],
+            '蓄电池': [('电压', 'V'), ('SOC', '%'), ('温度', '°C')],
+            '母线': [('电压', 'V'), ('电流', 'A')],
+        },
+        '测控': {
+            '上行链路': [('信号强度', 'dBm'), ('误码率', '')],
+            '下行链路': [('功率', 'dBm'), ('帧速率', 'fps')],
+        },
+        '综合电子': {
+            'CPU': [('使用率', '%')],
+            '内存': [('已用', 'MB')],
+            '调度': [('任务队列', '')],
+        },
+        '姿轨控': {
+            '姿态': [('wx', 'rad/s'), ('wy', 'rad/s')],
+            '轨道': [('X', 'km'), ('Y', 'km')],
+            '执行器': [('飞轮0', 'rpm'), ('飞轮1', 'rpm')],
+        },
+        '设备接口': {
+            'CAN': [('接收帧', ''), ('错误', '')],
+            'RS422': [('接收字节', 'B')],
+            'IO': [('IN0', ''), ('IN1', '')],
+        },
+    }
     # 仿真速度档（MUI Chip，当前档是 MuiChip-filled，其余 MuiChip-outlined）
     SPEEDS = ['1x', '2x', '4x', '8x', '16x']
     # 实时曲线时间窗档（MUI ToggleButton，value 是窗口秒数）
@@ -31,7 +61,6 @@ class TelemetryPage:
     _CURVE_RANGE_VALUE = {'1M': '60', '5M': '300', '10M': '600'}
     # 「真实节点」子标签下的占位文案
     REAL_NODE_NOTICE = '节点预留中，暂不可用'
-    PREFERRED_SCENARIOS = ('测试快速场景', 'test-0824')
 
     def __init__(self, page):
         self.page = page
@@ -45,18 +74,22 @@ class TelemetryPage:
         self.sim_control_heading = page.get_by_role('heading', name='仿真控制')
 
         # ==================== 仿真控制 · 播放控制 ====================
-        # 三个图标按钮无可见文字，用 title 作为可访问名匹配
-        self.play_button = page.get_by_role('button', name='启动仿真循环')
-        self.pause_button = page.get_by_role('button', name='暂停仿真循环')
-        self.stop_button = page.get_by_role('button', name='停止仿真循环')
+        # 播放按钮的 title 会按前置状态变化，不能按名称定位；从“速度”所在块向前取
+        # 播放控制行，可避开节点列表里同样使用 PlayArrowIcon 的“启动节点”按钮。
+        # 普通用户只读模式不渲染这整行，因此三个 locator 的 count 都是 0。
+        self.speed_label = page.get_by_text(re.compile(r'速度:\s*[\d.]+x'))
+        self.play_control_row = self.speed_label.locator(
+            'xpath=parent::div/preceding-sibling::div[1]')
+        self.play_button = self.play_control_row.locator('button').nth(0)
+        self.pause_button = self.play_control_row.locator('button').nth(1)
+        self.stop_button = self.play_control_row.locator('button').nth(2)
         # 「重置」：exact 避免命中画布/主区里含"重置"的其它控件
         self.reset_button = page.get_by_role('button', name='重置', exact=True)
         # 「应用」：自定义速度旁的应用按钮
         self.apply_button = page.get_by_role('button', name='应用', exact=True)
 
         # ==================== 仿真控制 · 速度 ====================
-        # "速度: 4x" 这行文案，随点击的档位变
-        self.speed_label = page.get_by_text(re.compile(r'速度:\s*\d+x'))
+        # "速度: 4x" 这行文案已在播放控制组中声明，随点击的档位变。
         # 自定义倍速输入框（type=number, min=0.1 max=16 step=0.1）
         self.custom_speed_input = page.get_by_placeholder('自定义')
 
@@ -77,7 +110,7 @@ class TelemetryPage:
         self.queue_depth_text = page.get_by_text(re.compile(r'队列深度:\s*\d+'))
 
         # ==================== 仿真控制 · 卫星选择 ====================
-        # 「卫星选择 — 正常运行模式」标题（带当前场景名）
+        # 「卫星选择 — <当前场景名>」标题
         self.satellite_select_label = page.get_by_text(re.compile(r'卫星选择\s*—'))
 
         # ==================== 仿真控制 · 仿真节点 ====================
@@ -92,6 +125,7 @@ class TelemetryPage:
         # 主面板「启动」只负责打开弹窗；需在弹窗里选择卫星后真正拉起 Python 进程。
         self.node_launch_dialog = page.get_by_role('dialog').filter(has_text='启动仿真进程')
         self.node_launch_satellite = self.node_launch_dialog.get_by_role('combobox')
+        self.node_launch_options = page.get_by_role('option')
         self.node_launch_button = self.node_launch_dialog.get_by_role(
             'button', name='启动 (python3 main.py)', exact=True)
         self.node_launch_close = self.node_launch_dialog.get_by_role(
@@ -105,6 +139,9 @@ class TelemetryPage:
 
         # ==================== 遥测主区 · 参数操作 ====================
         self.telemetry_checkboxes = page.get_by_role('checkbox')
+        # 每个参数项都是一个带 checkbox 的 MUI Grid item；按结构定位，不依赖生成的 css-* 类。
+        self.parameter_cards = page.locator('.MuiGrid-item').filter(
+            has=page.get_by_role('checkbox'))
         self.import_button = page.get_by_role('button', name='导入', exact=True)
         self.export_button = page.get_by_role('button', name='导出', exact=True)
         self.batch_edit_button = page.get_by_role('button', name='批量修改', exact=True)
@@ -133,39 +170,43 @@ class TelemetryPage:
 
     # ==================== 场景前置条件 ====================
 
-    def find_scenario_with_satellites(self):
-        """通过应用自己的只读接口找一条配置了卫星的场景。
-
-        优先使用稳定的测试场景名称，但不写死 ID；优先项不存在时自动回退到任意
-        `/api/satellites` 返回非空的场景。返回 {id, name, satellites}，找不到返回 None。
-        """
+    def scenario_inventory(self):
+        """只读列出所有场景及其卫星，返回 [{id, name, satellites}]。"""
         return self.page.evaluate(
-            """async preferred => {
+            """async () => {
                 const unwrap = payload => Array.isArray(payload) ? payload : (payload?.data ?? []);
-                const scenarioPayload = await (await fetch('/api/scenarios')).json();
-                const scenarios = unwrap(scenarioPayload);
-                const rank = name => {
-                    const i = preferred.indexOf(name);
-                    return i < 0 ? preferred.length : i;
-                };
-                const ordered = [...scenarios].sort((a, b) => rank(a.name) - rank(b.name));
-                for (const scenario of ordered) {
+                const scenarios = unwrap(await (await fetch('/api/scenarios')).json());
+                const result = [];
+                for (const scenario of scenarios) {
                     const response = await fetch(
                         `/api/satellites?scenarioId=${encodeURIComponent(scenario.id)}`);
-                    if (!response.ok) continue;
-                    const satellites = unwrap(await response.json());
-                    if (satellites.length) {
-                        return {
-                            id: scenario.id,
-                            name: scenario.name,
-                            satellites: satellites.map(s => ({id: s.id, name: s.name})),
-                        };
-                    }
+                    const satellites = response.ok ? unwrap(await response.json()) : [];
+                    result.push({
+                        id: scenario.id,
+                        name: scenario.name,
+                        template: Boolean(scenario.template),
+                        satellites: satellites.map(s => ({id: s.id, name: s.name})),
+                    });
                 }
-                return null;
-            }""",
-            list(self.PREFERRED_SCENARIOS),
+                return result;
+            }"""
         )
+
+    def find_scenario_with_satellites(self, min_count=1):
+        """通过应用自己的只读接口找一条配置了卫星的场景。
+
+        不依赖某套环境里的固定场景名称或数据库 ID；优先选择用户保存的非模板场景，
+        再回退到标准模板场景。返回第一条至少有 min_count 颗卫星的场景；找不到返回 None。
+        """
+        scenarios = self.scenario_inventory()
+        scenarios.sort(key=lambda item: item['template'])
+        return next(
+            (item for item in scenarios if len(item['satellites']) >= min_count), None)
+
+    def find_scenario_without_satellites(self):
+        """返回第一条未配置卫星的场景；当前数据没有时返回 None。"""
+        return next(
+            (item for item in self.scenario_inventory() if not item['satellites']), None)
 
     def select_scenario(self, scenario):
         """通过应用使用的 localStorage 键选择场景并刷新，再回到卫星遥测模块。
@@ -186,6 +227,31 @@ class TelemetryPage:
         scenario = self.find_scenario_with_satellites()
         return self.select_scenario(scenario) if scenario else None
 
+    def load_current_scenario(self):
+        """读取界面当前选择的场景及其卫星，不切换场景、不打断已有节点。"""
+        scenario = self.page.evaluate(
+            """async () => {
+                const unwrap = payload => Array.isArray(payload) ? payload : (payload?.data ?? []);
+                const id = localStorage.getItem('sarsat_last_scenario');
+                const scenarios = unwrap(await (await fetch('/api/scenarios')).json());
+                const current = scenarios.find(item => String(item.id) === String(id));
+                if (!current) return null;
+                const response = await fetch(
+                    `/api/satellites?scenarioId=${encodeURIComponent(current.id)}`);
+                if (!response.ok) return null;
+                const satellites = unwrap(await response.json());
+                return {
+                    id: current.id,
+                    name: current.name,
+                    satellites: satellites.map(s => ({id: s.id, name: s.name})),
+                };
+            }"""
+        )
+        if scenario:
+            self.selected_scenario = scenario
+            self.configured_satellites = scenario['satellites']
+        return scenario
+
     # ==================== 分系统子标签 ====================
 
     def subtab(self, name):
@@ -203,6 +269,15 @@ class TelemetryPage:
                 return name
         return None
 
+    def parameter_group(self, name):
+        """分系统里的参数分组，例如「太阳阵」「上行链路」。"""
+        return self.page.get_by_role('heading', name=name, exact=True).locator('xpath=..')
+
+    def parameter_cards_in_group(self, name):
+        """某个参数分组下所有带 checkbox 的参数卡片。"""
+        return self.parameter_group(name).locator('.MuiGrid-item').filter(
+            has=self.page.get_by_role('checkbox'))
+
     # ==================== 速度档 ====================
 
     def speed_chip(self, name):
@@ -214,8 +289,8 @@ class TelemetryPage:
         self.speed_chip(name).click()
 
     def current_speed(self):
-        """当前速度档，如 '4x'（从「速度: Nx」文案里解析）；解析不到返回 None。"""
-        m = re.search(r'速度:\s*(\d+x)', self.speed_label.inner_text())
+        """当前速度，如 '4x' / '0.5x'（从状态文案解析）；解析不到返回 None。"""
+        m = re.search(r'速度:\s*([\d.]+x)', self.speed_label.inner_text())
         return m.group(1) if m else None
 
     def speed_is_active(self, name):
@@ -246,14 +321,18 @@ class TelemetryPage:
         self.reset_button.click()
 
     def teardown_sim(self):
-        """收尾用：停循环、重置并停止全部仿真节点。失败静默。"""
-        for act in (self.stop_sim, self.reset_sim):
-            try:
-                act()
-                self.page.wait_for_timeout(500)
-            except Exception:
-                pass
-        self.stop_all_nodes()
+        """收尾用：停仿真循环、重置。失败静默。不停卫星节点——这台环境是共享的，
+        节点可能是别的用例或别人的会话留下的；而且真实拉起一次节点进程很慢，
+        每条用例都顺手关掉，下一条要用仿真的用例又得重新冷启动一遍。"""
+        try:
+            if self.stop_button.count() and self.stop_button.is_enabled():
+                self.stop_button.click(timeout=2000)
+                self.page.wait_for_timeout(300)
+            if self.reset_button.count() and self.reset_button.is_enabled():
+                self.reset_button.click(timeout=2000)
+                self.page.wait_for_timeout(300)
+        except Exception:
+            pass
 
     # ==================== 进度读数 ====================
 
@@ -378,35 +457,50 @@ class TelemetryPage:
 
     # ==================== 仿真节点进程 ====================
 
+    def _start_node(self, name, timeout_ms):
+        """在启动弹窗拉起一颗卫星，并等待它进入活动态。"""
+        self.node_start_button.click()
+        self.node_launch_dialog.wait_for(state='visible', timeout=5000)
+        self.node_launch_satellite.click()
+        self.page.get_by_role('option', name=name, exact=True).click()
+        self.node_launch_button.click()
+
+        try:
+            self.active_satellite_button(name).wait_for(
+                state='visible', timeout=timeout_ms)
+        except Exception as exc:
+            scenario = (
+                self.selected_scenario['name']
+                if self.selected_scenario else '当前场景')
+            raise AssertionError(
+                f'场景「{scenario}」启动卫星「{name}」后仍未进入运行态') from exc
+        finally:
+            try:
+                if self.node_launch_dialog.is_visible():
+                    self.node_launch_close.click(timeout=2000)
+                    self.node_launch_dialog.wait_for(state='hidden', timeout=3000)
+            except Exception:
+                pass
+
+    def ensure_one_active_node(self, timeout_ms=20000):
+        """复用一颗已有活动卫星；没有时只启动第一颗。返回 (名称, 是否新启动)。"""
+        assert self.configured_satellites, '当前场景没有配置卫星'
+        for satellite in self.configured_satellites:
+            name = satellite['name']
+            if self.active_satellite_button(name).count() > 0:
+                return name, False
+
+        name = self.configured_satellites[0]['name']
+        self._start_node(name, timeout_ms)
+        return name, True
+
     def start_nodes(self, timeout_ms=20000):
         """通过启动弹窗逐个拉起当前场景配置的卫星进程。"""
         for satellite in self.configured_satellites:
             name = satellite['name']
             if self.active_satellite_button(name).count() > 0:
                 continue
-
-            self.node_start_button.click()
-            self.node_launch_dialog.wait_for(state='visible', timeout=5000)
-            self.node_launch_satellite.click()
-            self.page.get_by_role('option', name=name, exact=True).click()
-            self.node_launch_button.click()
-
-            try:
-                self.active_satellite_button(name).wait_for(
-                    state='visible', timeout=timeout_ms)
-            except Exception as exc:
-                scenario = (
-                    self.selected_scenario['name']
-                    if self.selected_scenario else '当前场景')
-                raise AssertionError(
-                    f'场景「{scenario}」启动卫星「{name}」后仍未进入运行态') from exc
-            finally:
-                try:
-                    if self.node_launch_dialog.is_visible():
-                        self.node_launch_close.click(timeout=2000)
-                        self.node_launch_dialog.wait_for(state='hidden', timeout=3000)
-                except Exception:
-                    pass
+            self._start_node(name, timeout_ms)
 
     def stop_all_nodes(self, timeout_ms=20000):
         """停止当前场景所有运行节点；供 fixture teardown 使用。"""
@@ -425,6 +519,28 @@ class TelemetryPage:
         except Exception:
             pass
 
+    def ensure_nodes_running(self):
+        """启动 selected_scenario（没有则自动选一条配置了卫星的场景）配置的卫星节点，
+        等它们都进入活动态。真实拉起 python 进程——这是少数几个别的模块（如故障注入）
+        也要依赖的跨模块前置，出错代价大（拖垮一整条后面的用例），系统繁忙时第一次
+        可能等不到「运行态」。失败了就整套重来一次：刷新页面回到干净状态再选场景/
+        启动，不在已经点开一半的弹窗上瞎重试（避免重复拉起同一颗卫星的进程），
+        重试一次仍失败才真的报错。"""
+        scenario = self.selected_scenario or self.select_first_scenario_with_satellites()
+        assert scenario, '当前没有任何配置了卫星的场景'
+        try:
+            self.start_nodes()
+            visible = self.wait_active_satellites()
+            assert visible, '启动节点后左侧仍没有活动卫星'
+        except AssertionError:
+            self.page.reload(wait_until='networkidle')
+            self.open()
+            self.select_scenario(scenario)
+            self.start_nodes()
+            visible = self.wait_active_satellites()
+            assert visible, f'重试一次后场景「{scenario["name"]}」仍没有活动卫星'
+        return scenario
+
     def wait_active_satellites(self, timeout_ms=20000):
         """等已配置卫星在左侧卫星选择区出现，返回当前出现的名称。"""
         deadline = self.page.evaluate('Date.now()') + timeout_ms
@@ -435,6 +551,26 @@ class TelemetryPage:
                 return visible
             self.page.wait_for_timeout(300)
         return []
+
+    def active_satellite_names(self):
+        """当前场景配置中，已经显示运行状态圆点的卫星名称。"""
+        return [
+            item['name'] for item in self.configured_satellites
+            if self.active_satellite_button(item['name']).count() > 0
+        ]
+
+    def node_statuses(self):
+        """读取仿真节点区当前配置卫星的 RUNNING / STOPPED 状态。"""
+        lines = [line.strip() for line in self.node_section.inner_text().splitlines() if line.strip()]
+        result = {}
+        for item in self.configured_satellites:
+            name = item['name']
+            if name not in lines:
+                continue
+            index = lines.index(name)
+            if index + 1 < len(lines) and lines[index + 1] in ('RUNNING', 'STOPPED'):
+                result[name] = lines[index + 1]
+        return result
 
     # ==================== 节点模式 ====================
 
@@ -471,6 +607,25 @@ class TelemetryPage:
         self.batch_edit_dialog.wait_for(state='hidden')
 
     # ==================== 遥测主区 · 实时曲线 ====================
+
+    def curve_option(self):
+        """读取实时曲线正在渲染的 ECharts option。"""
+        return eco.get_option(self.curve_chart)
+
+    def curve_point_count(self):
+        """实时曲线所有系列当前数据点总数。"""
+        option = self.curve_option() or {}
+        return sum(len(eco.as_list(series.get('data'))) for series in eco.series_list(option))
+
+    def wait_curve_points_increase(self, before=0, timeout_ms=15000, poll_ms=300):
+        """等待实时曲线数据点总数超过 before，返回最新点数。"""
+        deadline = self.page.evaluate('Date.now()') + timeout_ms
+        while self.page.evaluate('Date.now()') < deadline:
+            count = self.curve_point_count()
+            if count > before:
+                return count
+            self.page.wait_for_timeout(poll_ms)
+        return self.curve_point_count()
 
     def curve_range_button(self, name):
         """实时曲线时间窗档按钮的 locator（name 传 '1M' / '5M' / '10M'）。

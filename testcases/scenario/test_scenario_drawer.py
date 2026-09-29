@@ -21,15 +21,18 @@ def test_scenario_list_count_and_search(scenario_drawer_page):
             drawer.search_input):
         expect(locator).to_be_visible()
 
-    # “已存场景 (N)”必须与当前列表行数一致。
+    # “已存场景 (N)”和列表内容必须与 /api/scenarios 当前响应一致。
+    api_names = [item['name'] for item in drawer.scenario_inventory()]
     initial_names = drawer.visible_scenario_names()
     assert drawer.saved_count() == len(initial_names)
-    assert '测试快速场景' in initial_names
+    assert initial_names == api_names
+    assert api_names, '场景接口当前没有可用于搜索验证的数据'
+    target = api_names[-1]
 
-    # 输入存在的关键字，只显示匹配场景，数量同步变为 1。
-    drawer.search_input.fill('测试快速')
+    # 输入当前列表中真实存在的完整名称，只显示该场景，数量同步变为 1。
+    drawer.search_input.fill(target)
     expect(drawer.saved_count_text).to_have_text('已存场景 (1)')
-    assert drawer.visible_scenario_names() == ['测试快速场景']
+    assert drawer.visible_scenario_names() == [target]
 
     # 输入不存在的关键字，列表为空并显示“暂无场景”。
     drawer.search_input.fill('AUTOTEST-NO-SUCH-SCENARIO')
@@ -43,9 +46,7 @@ def test_scenario_list_count_and_search(scenario_drawer_page):
 @allure.title('切换场景弹窗文案正确：取消不切换，确定后顶部和卫星选择同步更新')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_switch_scenario_cancel_then_confirm(scenario_switch_page):
-    drawer = scenario_switch_page
-    source = '正常运行模式'
-    target = '测试快速场景'
+    drawer, source, target = scenario_switch_page
 
     # 固定前置已生效：顶部和卫星选择区都显示原场景。
     expect(drawer.current_scenario_chip).to_have_text(source)
@@ -78,6 +79,9 @@ def test_switch_scenario_cancel_then_confirm(scenario_switch_page):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_quick_create_toggle_and_name_validation(scenario_drawer_page):
     drawer = scenario_drawer_page
+    scenarios = drawer.scenario_inventory()
+    assert scenarios, '场景接口当前没有可用于重名校验的数据'
+    duplicate_name = scenarios[-1]['name']
 
     drawer.quick_create_button.click()
 
@@ -87,7 +91,7 @@ def test_quick_create_toggle_and_name_validation(scenario_drawer_page):
     expect(drawer.quick_next_button).to_be_disabled()
 
     # 输入已存场景名称显示重名提示，仍不能进入下一步。
-    drawer.quick_name_input.fill('测试快速场景')
+    drawer.quick_name_input.fill(duplicate_name)
     expect(drawer.quick_duplicate_name_error).to_be_visible()
     expect(drawer.quick_next_button).to_be_disabled()
 
@@ -178,8 +182,7 @@ def test_quick_create_values_persist_and_delete_flow(scenario_create_case):
 
     # 再次打开并确认删除，行消失且数量恢复。
     drawer.click_delete(name)
-    drawer.delete_confirm_button.click()
-    expect(drawer.delete_dialog).to_be_hidden()
+    drawer.confirm_delete_and_wait()
     expect(drawer.saved_count_text).to_have_text(
         f'已存场景 ({initial_count})')
     assert name not in drawer.visible_scenario_names()
@@ -191,14 +194,17 @@ def test_quick_create_values_persist_and_delete_flow(scenario_create_case):
 @allure.severity(allure.severity_level.CRITICAL)
 def test_edit_existing_scenario_opens_definition(scenario_drawer_page):
     drawer = scenario_drawer_page
+    scenarios = drawer.scenario_inventory()
+    assert scenarios, '场景接口当前没有可用于编辑入口验证的数据'
+    target = scenarios[-1]['name']
 
-    drawer.click_edit('测试快速场景')
+    drawer.click_edit(target)
     definition = ScenarioDefinitionPage(drawer.page)
 
     # 编辑现有场景的 URL 带 id，定义页名称与所点场景一致。
     expect(drawer.page).to_have_url(re.compile(r'/scenarios\?id=[^&]+$'))
     expect(definition.heading).to_be_visible()
-    expect(definition.name_input).to_have_value('测试快速场景')
+    expect(definition.name_input).to_have_value(target)
 
 
 @allure.feature('右侧管理抽屉')
@@ -224,12 +230,14 @@ def test_advanced_create_opens_blank_definition(scenario_drawer_page):
 @allure.severity(allure.severity_level.NORMAL)
 def test_template_dialog_closes_on_backdrop(scenario_drawer_page):
     drawer = scenario_drawer_page
+    templates = drawer.template_inventory()
+    assert templates, '场景模板接口当前没有可用于模板库验证的数据'
 
     drawer.template_library_button.click()
 
-    # 模板弹窗打开，已知 test 模板可见。
+    # 模板弹窗打开，接口返回的真实模板可见。
     expect(drawer.template_dialog).to_be_visible()
-    expect(drawer.template_test_card).to_be_visible()
+    expect(drawer.template_card(templates[0])).to_be_visible()
 
     # 点击弹窗外遮罩关闭模板库。
     drawer.template_backdrop.click(position={'x': 5, 'y': 5}, force=True)

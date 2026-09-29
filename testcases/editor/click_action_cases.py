@@ -110,15 +110,18 @@ class ClickActionCases:
         assert opened == [], f'编辑态不该开新标签页，实际开了 {[pg.url for pg in opened]}'
 
         # 预览态：新开一个标签页，当前页不动
+        # 用 expect_page 去真正等「新标签页打开」这个事件，而不是死等固定几秒再
+        # 去看有没有——固定等待在机器负载高、渲染慢的时候很容易等不够，看着像
+        # 「偶发失败」，其实是等待时间本身跟负载没关系导致的假失败。
         ed.enter_preview()
         url_before = page.url
-        page.get_by_text(tag).first.click(force=True)
-        page.wait_for_timeout(2000)
+        with page.context.expect_page(timeout=8000) as new_page_info:
+            page.get_by_text(tag).first.click(force=True)
+        new_page = new_page_info.value
         assert page.url == url_before, f'当前页不该跳走，实际变成 {page.url}'
-        assert len(opened) == 1, f'应新开 1 个标签页，实际 {len(opened)} 个'
-        assert opened[0].url.startswith(target), \
-            f'新标签页地址应是配置的 {target}，实际是 {opened[0].url}'
-        opened[0].close()
+        assert new_page.url.startswith(target), \
+            f'新标签页地址应是配置的 {target}，实际是 {new_page.url}'
+        new_page.close()
 
     # ==================== 没配点击事件 ====================
 

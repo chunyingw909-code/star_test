@@ -4,3 +4,6 @@ __pycache__/
 allure-results/
 screenshots/actual/
 .idea/
+config/secrets.yaml
+config/dm8.local.yaml
+config/fault_test_records.local.yaml

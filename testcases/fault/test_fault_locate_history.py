@@ -7,6 +7,8 @@ from playwright.sync_api import expect
 
 from pages.fault.fault_library_page import FaultLibraryPage
 from pages.fault.locate_history_page import FaultLocateHistoryPage
+from testcases.fault.pager_checks import (
+    assert_next_page, assert_page_size_10, assert_total_stable)
 
 _FMT = '%Y-%m-%dT%H:%M'   # datetime-local 输入格式
 
@@ -155,20 +157,107 @@ def test_locate_history_start_time_future_empty(locate_history_page):
     assert h.total_count() == 0
 
 
-# ==================== 分页 ====================
+# ==================== 分页（和目录同一套：每页行数、总数、翻页不重叠）====================
 
 @allure.feature('故障/预案库')
 @allure.story('定位历史')
-@allure.title('翻到下一页：行号区间接着往后、内容与上一页不同')
+@allure.title('改「每页行数」为 10，当前页行数与行号区间随之变化')
+@allure.severity(allure.severity_level.NORMAL)
+def test_locate_history_rows_per_page(locate_history_page):
+    # 断言：每页行数改成 10 后，当前页正好 10 行、行号 1-10
+    assert_page_size_10(locate_history_page)
+
+
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('总条数不随「每页行数」变化')
+@allure.severity(allure.severity_level.NORMAL)
+def test_locate_history_total_stable(locate_history_page):
+    # 断言：换 10 / 50 / 20 都不改变总条数
+    assert_total_stable(locate_history_page)
+
+
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('翻到下一页：行号区间接着往后、内容与上一页不重叠')
 @allure.severity(allure.severity_level.NORMAL)
 def test_locate_history_pagination(locate_history_page):
+    # 断言：行号接着上一页。编码会重复，用时间+状态+编码+故障认行，两页不重叠
+    assert_next_page(locate_history_page, locate_history_page.page_keys)
+
+
+# ==================== 反馈：对 / 错 ====================
+
+def _row_key(row):
+    return (row['time'], row['status'], row['code'], row['fault'])
+
+
+def _open_pending(h, kind):
+    """给反馈相关用例单独造一条定位记录再操作，不用共享历史表里现成的——现成的可能
+    正被同时/先后跑的其它用例（包括快速定位自己的反馈用例）抢着改，读到的会是别人
+    刚改完的状态。"""
+    created = h.api_create_pending()
+    h.wait_own_pending_row(created['code'])
+    return h.open_feedback(0, kind)
+
+
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('点「标记为准确」弹出确认框，点取消后这条记录仍是未反馈')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_locate_history_feedback_accurate_cancel(locate_history_page):
     h = locate_history_page
-    if h.total_count() <= 10:
-        pytest.skip(f'共 {h.total_count()} 条，不足两页')
+    before = _open_pending(h, '准确')
+    # 断言：确认框说明这是「准确」，并且提交后不能撤销
+    expect(h.feedback_dialog).to_contain_text(h.FEEDBACK_DIALOG['准确'])
+    expect(h.feedback_dialog).to_contain_text('不可直接撤销')
+    h.cancel_feedback()
+    # 断言：取消后确认框关掉，按钮还在，没有变成「已确认」
+    expect(h.feedback_dialog).to_be_hidden()
+    after = h.row_by_key(_row_key(before))
+    assert after is not None, f'取消后找不到原记录：{before}'
+    assert after['fb_buttons'] == 2 and after['fb_text'] == '', f'取消后记录被改了：{after}'
 
-    _, last = h.page_range()
-    page1_times = h.times()
 
-    h.goto_next_page()
-    assert h.page_range()[0] == last + 1
-    assert h.times() != page1_times
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('点「标记为准确」再点确认提交，这条记录变成「已确认」且不能再点')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_locate_history_feedback_accurate_confirm(locate_history_page):
+    h = locate_history_page
+    before = _open_pending(h, '准确')
+    h.confirm_feedback()
+    # 断言：确认提交后这条记录变成「已确认」，两个按钮都没了
+    after = h.wait_feedback(_row_key(before), '已确认')
+    assert after['fb_buttons'] == 0
+
+
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('点「标记为误报」弹出确认框，点取消后这条记录仍是未反馈')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_locate_history_feedback_wrong_cancel(locate_history_page):
+    h = locate_history_page
+    before = _open_pending(h, '误报')
+    # 断言：确认框说明这是「误报」，并且提交后不能撤销
+    expect(h.feedback_dialog).to_contain_text(h.FEEDBACK_DIALOG['误报'])
+    expect(h.feedback_dialog).to_contain_text('不可直接撤销')
+    h.cancel_feedback()
+    # 断言：取消后确认框关掉，按钮还在，没有变成「误报」
+    expect(h.feedback_dialog).to_be_hidden()
+    after = h.row_by_key(_row_key(before))
+    assert after is not None, f'取消后找不到原记录：{before}'
+    assert after['fb_buttons'] == 2 and after['fb_text'] == '', f'取消后记录被改了：{after}'
+
+
+@allure.feature('故障/预案库')
+@allure.story('定位历史')
+@allure.title('点「标记为误报」再点确认提交，这条记录变成「误报」且不能再点')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_locate_history_feedback_wrong_confirm(locate_history_page):
+    h = locate_history_page
+    before = _open_pending(h, '误报')
+    h.confirm_feedback()
+    # 断言：确认提交后这条记录变成「误报」，两个按钮都没了
+    after = h.wait_feedback(_row_key(before), '误报')
+    assert after['fb_buttons'] == 0

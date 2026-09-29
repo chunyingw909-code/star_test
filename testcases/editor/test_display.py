@@ -203,14 +203,9 @@ def test_theme_toggle(free_layout_page):
 
 @allure.feature('界面编辑器')
 @allure.story('显示-主题')
-@allure.title('[现状] 主题选到浅色后，跳到别的路由（/fault）就被打回深色')
+@allure.title('主题选到浅色后，跳到别的路由（/fault）仍保持浅色')
 @allure.severity(allure.severity_level.NORMAL)
-def test_theme_resets_on_route_change(free_layout_page):
-    # ⚠️ 现状记录（非期望）：在编辑器里切成浅色，然后跳到 /fault 这类真实路由，
-    # 主题立刻被打回深色（顶部导航的 tab 切换不改 URL、不受影响，一定要真的换路由）。
-    # 主题状态没做成全局的。
-    # TODO(bug) 期望：主题选择应跨路由保持。开发修好后把断言改成「浅色被保留」。
-    #                 已提 bug。
+def test_theme_persists_on_route_change(free_layout_page):
     from common.utils import read_yaml
     ed = free_layout_page.editor
     page = ed.page
@@ -226,5 +221,6 @@ def test_theme_resets_on_route_change(free_layout_page):
     page.goto(base + '/zh-CN/fault')
     page.wait_for_load_state('networkidle')
 
-    # 现状：主题被打回深色
-    assert _paper_bg(page) == dark_bg,         f'现状是跳路由后主题被重置回深色，实际 Paper 背景={_paper_bg(page)}'
+    # 主题是全局状态，进入真实路由后仍应保持浅色。
+    assert _paper_bg(page) == light_bg, \
+        f'跳路由后应保持浅色，实际 Paper 背景={_paper_bg(page)}'

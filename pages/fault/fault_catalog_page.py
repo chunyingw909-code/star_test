@@ -1,10 +1,13 @@
-import re
-
 from common.utils import wait_until_stable
+from pages.fault.mui_pager import MuiTablePager
 
 
 class FaultCatalogPage:
     """故障/预案库 -「目录」子标签（data-testid="fault-catalog-root"）。
+
+    内嵌 Tab 版本（主壳内点「目录」进，URL 仍 /zh-CN）和独立路由版（/zh-CN/fault，直接
+    改 URL / 头像菜单「故障管理」都能进）内容和 fault-catalog-root 包裹完全一致，这个类
+    两边直接通用，不用额外兜底。
 
     一张可筛选 / 搜索 / 排序 / 分页的故障总表，点某行进故障详情。
     本类只暴露：定位（__init__ 里的属性）、读表格 / 分页的方法、筛选 / 搜索 / 排序 / 翻页 /
@@ -35,12 +38,8 @@ class FaultCatalogPage:
         self.empty_hint = self.root.get_by_text('未找到匹配的故障模式')   # test_empty_state
         self.clear_button = self.root.get_by_role('button', name='清空过滤条件')  # test_empty_state
         self.detail_back_button = self.root.get_by_role('button', name='返回')
-        # 分页（MUI TablePagination）
-        self._pager = self.root.locator('.MuiTablePagination-root')
-        self._rows_per_page_select = self._pager.locator('.MuiTablePagination-select')
-        self._displayed_rows = self._pager.locator('.MuiTablePagination-displayedRows')
-        self._next_page_btn = self._pager.get_by_role('button', name='next page')
-        self._prev_page_btn = self._pager.get_by_role('button', name='previous page')
+        # 分页和定位历史是同一套 MUI 分页，稳定条件用编码列
+        self._pager = MuiTablePager(page, self.root, self._settle)
 
     # ---------- 读表格 ----------
 
@@ -160,6 +159,20 @@ class FaultCatalogPage:
         idx = next((i for i, n in enumerate(counts) if n == 0), None)
         return self.open_fault_at(idx) if idx is not None else None
 
+    def open_first_fault_without_rules(self):
+        """打开当前页第一条「定位规则 (0)」的故障。目录表没有规则数列，得点进去看 tab。
+        没有就返回 None，并回到总表。给 test_locate_rules_empty_state 用。"""
+        from pages.fault.fault_detail_page import FaultDetailPage
+
+        detail = FaultDetailPage(self.page)
+        total = self.row_count()
+        for i in range(total):
+            picked = self.open_fault_at(i)
+            if detail.tab_count('定位规则') == 0:
+                return picked
+            self.back_to_list()
+        return None
+
     def back_to_list(self):
         """在详情视图点「返回」回到故障总表。给 test_detail_back_to_catalog 用。"""
         self.detail_back_button.click()
@@ -167,39 +180,29 @@ class FaultCatalogPage:
 
     # ---------- 分页（给 test_rows_per_page_change / _next_page / _total_count_stable / test_column_sort 用）----------
 
-    def _pager_numbers(self):
-        """分页文本（形如 "1-20 / 共 N 条"）里的数字 [起, 止, 总]。"""
-        return [int(x) for x in re.findall(r'\d+', self._displayed_rows.inner_text())]
-
     def total_count(self):
         """总条数（"共 N 条" 里的 N），与每页行数无关。"""
-        return self._pager_numbers()[-1]
+        return self._pager.total_count()
 
     def page_range(self):
         """当前页行号区间，如 (1, 20)。"""
-        nums = self._pager_numbers()
-        return nums[0], nums[1]
+        return self._pager.page_range()
 
     def rows_per_page(self):
         """当前「每页行数」。"""
-        return int(self._rows_per_page_select.inner_text().strip())
+        return self._pager.rows_per_page()
 
     def set_rows_per_page(self, n):
         """改「每页行数」（选项 10 / 20 / 50），等表格稳定。"""
-        self._rows_per_page_select.click()
-        self.page.get_by_role('option', name=str(n), exact=True).click()
-        self._settle()
+        self._pager.set_rows_per_page(n)
 
     def goto_next_page(self):
         """翻到下一页，等表格稳定。"""
-        self._next_page_btn.click()
-        self._settle()
+        self._pager.goto_next_page()
 
     def _goto_first_page(self):
         """点「上一页」直到第一页（all_codes 起手用）。"""
-        while not self._prev_page_btn.is_disabled():
-            self._prev_page_btn.click()
-            self._settle()
+        self._pager.goto_first_page()
 
     def all_codes(self):
         """「编码」列跨全部分页按页顺序拼起来（从第一页收集）。给 test_column_sort 校验

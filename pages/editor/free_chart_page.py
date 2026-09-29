@@ -1,4 +1,4 @@
-from common.canvas_pixels import fingerprint
+from common import echarts_option as eco
 from pages.editor.free_layout_page import FreeLayoutPage
 
 
@@ -10,6 +10,9 @@ class FreeChartPage(FreeLayoutPage):
 
     只放实际有用例的定位和操作。双击 / 阈值 / 悬停 / 输入变化 这几个事件不生效，
     用例不写，这里也不留定位，原因见图表的测试文件开头。
+
+    画布上的图走 echarts-for-react：属性面板的 HTML 对不上「图画出来没有」，
+    像素指纹又只能看出变了。真正的对错从 chart_option() 读正在画的 option。
     """
 
     # 三个下拉的选项（顺序即面板里的顺序）
@@ -88,6 +91,11 @@ class FreeChartPage(FreeLayoutPage):
         # 绑好之后画布上的状态标签，以及真正出图的那块 echarts 画布
         self.widget_bound_chip = self.widget.get_by_text(self.BOUND_HINT, exact=True)
         self.widget_canvas = self.widget.locator('canvas')
+        self.widget_echarts = self.widget.locator('.echarts-for-react').first
+        # ECharts 的 HTML tooltip 没有 class，用这组内联样式特征定位。
+        self.chart_tooltip = self.widget_echarts.locator(
+            'div[style*="position: absolute"][style*="white-space: nowrap"]'
+            '[style*="pointer-events: none"]')
 
     # ==================== 定位（要带参数的只能写成方法）====================
 
@@ -136,6 +144,14 @@ class FreeChartPage(FreeLayoutPage):
             return combobox, []
         return combobox, listbox.get_by_role('option').all_inner_texts()
 
+    def _wait_option_committed(self, timeout_ms=3000):
+        """选完下拉某项后，等菜单真的关掉——比死等一个固定的秒数更快也更准：
+        环境响应快就立刻往下走，响应慢也不会因为等太短而选早了。"""
+        try:
+            self.page.locator('[role="listbox"]:visible').wait_for(state='hidden', timeout=timeout_ms)
+        except Exception:
+            pass
+
     def bind_choose(self, label, name):
         """在对话框里某个下拉选中一项，并等下一级字段刷出来。"""
         current = self.bind_field(label).inner_text().strip()
@@ -145,13 +161,57 @@ class FreeChartPage(FreeLayoutPage):
         assert name in names, f'「{label}」当前选项里没有 {name!r}：{names}'
         self.page.locator('[role="listbox"]:visible').last \
             .get_by_role('option', name=name, exact=True).click()
-        self.page.wait_for_timeout(1500)
+        self._wait_option_committed()
 
-    def canvas_fingerprint(self):
-        """绑好数据源、真出图之后，采一张画布的像素指纹。
-        echarts 画在 canvas 上，DOM 里读不出主题 / 图例位置这些，只能看像素。
-        怎么用见 common/canvas_pixels.py。"""
-        return fingerprint(self.widget_canvas.first)
+    def chart_option(self):
+        """正在画的 echarts option。读不到返回 None。"""
+        host = self.widget_echarts if self.widget_echarts.count() else self.widget_canvas.first
+        return eco.get_option(host)
+
+    def wait_chart(self, getter, expected, timeout_ms=8000):
+        """等到 getter(option) == expected，避开换类型/主题时的入场动画。"""
+        host = self.widget_echarts if self.widget_echarts.count() else self.widget_canvas.first
+        return eco.wait_option(host, getter, expected, timeout_ms=timeout_ms)
+
+    def chart_series_names(self):
+        return eco.series_names(self.chart_option() or {})
+
+    def chart_legend_side(self):
+        return eco.legend_side(self.chart_option() or {})
+
+    def chart_legend_shown(self):
+        return bool(eco.legend(self.chart_option() or {}).get('show', True))
+
+    def chart_tooltip_shown(self):
+        box = eco.tooltip(self.chart_option() or {})
+        return bool(box.get('show', True) and box.get('showContent', True))
+
+    def hover_chart_data_point(self, data_index=None):
+        """把真实鼠标移到第一条系列的某个数据点；默认取中间点。"""
+        host = self.widget_echarts if self.widget_echarts.count() else self.widget_canvas.first
+        point = eco.data_point_position(host, data_index=data_index)
+        self.widget_canvas.first.hover(position={'x': point['x'], 'y': point['y']})
+        return point
+
+    def bind_checked_value_names(self):
+        """当前勾上的数值字段显示名（去掉类型后缀），跟图上系列名对齐。"""
+        names = []
+        for i in range(self.bind_value_fields.count()):
+            box = self.bind_value_fields.nth(i)
+            if not box.is_checked():
+                continue
+            raw = box.evaluate(
+                """el => (el.closest('label') || el.parentElement).innerText || ''""")
+            names.append(raw.split('·')[0].strip())
+        return names
+
+    def bind_preview_headers(self):
+        return [t.strip() for t in self.bind_preview_table.locator('thead th').all_inner_texts()
+                if t.strip()]
+
+    def bind_preview_first_row(self):
+        cells = self.bind_preview_table.locator('tbody tr').first.locator('td')
+        return [t.strip() for t in cells.all_inner_texts()]
 
     def bind_dialog_field_labels(self):
         """当前弹窗里所有配置字段的名字。切换数据来源后字段会整组换掉，
@@ -164,14 +224,8 @@ class FreeChartPage(FreeLayoutPage):
         result = [(n, self.page.get_by_role('option', name=n, exact=True)
                    .get_attribute('aria-disabled') == 'true') for n in names]
         self.page.keyboard.press('Escape')
-        self.page.wait_for_timeout(400)
+        self._wait_option_committed()
         return result
-
-    def hover_chart(self):
-        """把鼠标移到图中间。提示框（tooltip）只有悬停时才画出来，要测它就得真 hover。"""
-        box = self.widget_canvas.first.bounding_box()
-        self.page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
-        self.page.wait_for_timeout(800)
 
     def unhover_chart(self):
         """把鼠标从图上移开，让提示框消失。"""
@@ -192,7 +246,7 @@ class FreeChartPage(FreeLayoutPage):
         assert sources, '「关系型数据源」下拉里一个可选项都没有，后端没登记数据源？'
         chosen['数据源'] = sources[0]
         self.page.get_by_role('option').first.click()
-        self.page.wait_for_timeout(1500)
+        self._wait_option_committed()
 
         _, schemas = self.bind_options('Schema')
         assert schemas, '「Schema」下拉里一个可选项都没有'
@@ -208,20 +262,75 @@ class FreeChartPage(FreeLayoutPage):
             if index == 0:
                 self.page.locator('[role="listbox"]:visible').last \
                     .get_by_role('option', name=schema, exact=True).click()
-                self.page.wait_for_timeout(1500)
+                self._wait_option_committed()
             else:
                 self.bind_choose('Schema', schema)
-            _, tables = self.bind_options('数据表')
+            # 试探性地看这个 Schema 底下有没有表：真有表的话下拉基本立刻就展开，
+            # 没有表的话这个下拉压根不会弹出来——用默认的 8 秒超时去等一个不存在
+            # 的东西，Schema 一多就会卡成大半分钟。这里超时砍到 1.5 秒，试错快很多。
+            _, tables = self.bind_options('数据表', timeout_ms=1500)
             if tables:
                 chosen['Schema'] = schema
                 chosen['数据表'] = tables[0]
                 self.page.get_by_role('option').first.click()
-                self.page.wait_for_timeout(2000)
+                self._wait_option_committed()
                 return chosen
             self.page.keyboard.press('Escape')
-            self.page.wait_for_timeout(400)
+            self._wait_option_committed()
 
         raise AssertionError(f'这些 Schema 底下都没有表：{schemas}')
+
+    # 有些下拉第一项是「请选择」占位符（不是真数据），选中它等于没选。
+    PLACEHOLDER_OPTION = '请选择'
+
+    def bind_choose_first_real(self, label):
+        """选中某个下拉里第一个「不是占位符」的选项，返回选中的文案。"""
+        _, options = self.bind_options(label)
+        real_options = [o for o in options if o != self.PLACEHOLDER_OPTION]
+        assert real_options, f'「{label}」下拉里除了占位符没有别的可选项：{options}'
+        picked = real_options[0]
+        self.page.locator('[role="listbox"]:visible').last \
+            .get_by_role('option', name=picked, exact=True).click()
+        self._wait_option_committed()
+        return picked
+
+    def bind_pick_timeseries(self):
+        """把绑定对话框走到「时序数据源（TDengine）」选完的一步：
+        TDengine 数据源 → 卫星 → 分系统 → 统计方式 → 时间粒度，每步选第一个可用项，
+        不写死具体卫星/分系统名。选完「分系统」后会冒出「遥测参数」勾选框（跟关系型
+        的数值字段是同一套模式，一个不勾保存不生效），这里只勾第一个——折线图对
+        同时展示的参数单位数有限制（实测全勾会撞上「最多同时展示两种单位」），
+        勾一个肯定不越界。
+        「最近多少小时」是数字输入框，保留自带默认值不改。
+        调用前需要先把「数据来源」切到时序数据源那一项。
+        返回一路选中的 {TDengine 数据源, 卫星, 分系统, 统计方式, 时间粒度, 遥测参数}。
+        """
+        chosen = {}
+        for label in ('TDengine 数据源', '卫星', '分系统'):
+            chosen[label] = self.bind_choose_first_real(label)
+
+        params = self.bind_dialog.locator('input[type="checkbox"]')
+        count = params.count()
+        assert count > 0, '选完分系统后应该列出可勾选的遥测参数'
+        params.first.check()
+        chosen['遥测参数'] = 1
+
+        for label in ('统计方式', '时间粒度'):
+            chosen[label] = self.bind_choose_first_real(label)
+        return chosen
+
+    def bind_pick_api(self):
+        """把绑定对话框走到「API 数据源」选完的一步：已登记 API 数据源 → 刷新方式，
+        各选第一个「非占位符」的可用项（下拉第一项通常是「请选择」占位符，选中它
+        等于没选，保存会卡在「数据绑定配置不完整」）。
+        「结果路径（相对 API data，可选）」是可选输入框，留空不填。
+        调用前需要先把「数据来源」切到 API 数据源那一项。
+        返回一路选中的 {已登记 API 数据源, 刷新方式}。
+        """
+        chosen = {}
+        for label in ('已登记 API 数据源', '刷新方式'):
+            chosen[label] = self.bind_choose_first_real(label)
+        return chosen
 
     def bind_pick_fields(self):
         """接着上一步：选横轴字段 + 把数值字段【全部勾上】（一个不勾保存不生效）。
@@ -230,26 +339,25 @@ class FreeChartPage(FreeLayoutPage):
         另外两个整列都是 0。只勾第一个的话图上就是一条贴着底的直线，
         警告线 / 危险线 / 填充透明度这些改了都看不出效果，等于白测。
         全勾就一定包含有数据的那个。
-        返回选中的横轴字段。
+        返回 {横轴字段, 数值字段}。
         """
         _, axes = self.bind_options('横轴字段')
         assert axes, '「横轴字段」下拉里一个可选项都没有'
         self.page.get_by_role('option').first.click()
-        self.page.wait_for_timeout(1200)
+        self._wait_option_committed()
 
         count = self.bind_value_fields.count()
         assert count > 0, '选完表之后应该列出可选的数值字段'
         for i in range(count):
             self.bind_value_fields.nth(i).check()
-            self.page.wait_for_timeout(250)
-        return axes[0]
+        return {'横轴字段': axes[0], '数值字段': self.bind_checked_value_names()}
 
     def bind_first_available(self):
         """把数据绑定从头走到尾并保存，等画布真的出图。
-        返回一路选中的东西 {数据源, Schema, 数据表, 横轴字段}，用例要断言就用它。
+        返回一路选中的 {数据源, Schema, 数据表, 横轴字段, 数值字段}。
         """
         chosen = self.bind_pick_table()
-        chosen['横轴字段'] = self.bind_pick_fields()
+        chosen.update(self.bind_pick_fields())
 
         self.bind_dialog_save.click()
         self.bind_dialog.wait_for(state='hidden', timeout=20000)

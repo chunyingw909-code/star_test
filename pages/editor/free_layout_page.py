@@ -31,6 +31,14 @@ class FreeLayoutPage(JsonViewMixin):
         # 画布
         self.canvas = page.locator('.react-grid-layout')
 
+        # 实时遥测绑定对话框（仪表盘 / 指示牌 / 状态灯 / 文本共用）
+        self.realtime_bind_button = page.get_by_role(
+            'button', name='配置实时遥测', exact=True)
+        self.realtime_dialog = page.get_by_role('dialog').filter(has_text='实时遥测')
+        self.realtime_combos = self.realtime_dialog.get_by_role('combobox')
+        self.realtime_save_button = self.realtime_dialog.get_by_role(
+            'button', name='保存绑定', exact=True)
+
     # 根据名字获取添加组件菜单中的某一项
     def component_item(self, name):
         return self.page.get_by_role('menuitem', name=name)
@@ -77,6 +85,22 @@ class FreeLayoutPage(JsonViewMixin):
         combobox.click()
         self.page.get_by_role('option', name=name, exact=True).click()
         self.page.wait_for_timeout(400)
+
+    def bind_realtime(self, item_name):
+        """通过统一对话框把当前组件绑定到一项真实遥测，返回所选卫星和遥测项。"""
+        self.realtime_bind_button.click()
+        self.realtime_dialog.wait_for(state='visible')
+        satellite = self.realtime_combos.nth(0).inner_text().strip()
+        assert satellite, '实时遥测对话框没有可用卫星'
+
+        self.realtime_combos.nth(1).click()
+        option = self.page.get_by_role('option', name=item_name, exact=True)
+        option.wait_for(state='visible')
+        option.click()
+        selected_item = self.realtime_combos.nth(1).inner_text().strip()
+        self.realtime_save_button.click()
+        self.realtime_dialog.wait_for(state='hidden')
+        return {'satellite': satellite, 'item': selected_item}
 
     def color_swatch(self, label):
         """跟某个颜色文本框（如 '颜色' / '正常颜色'）配对的那个色块。"""

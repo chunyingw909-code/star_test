@@ -1,6 +1,7 @@
 import pytest
 import requests
 
+from common import echarts_option as eco
 from common.utils import read_yaml
 from pages.editor.editor_page import EditorPage
 from pages.editor.free_layout_page import FreeLayoutPage
@@ -13,11 +14,11 @@ from pages.editor.free_table_page import FreeTablePage
 from pages.editor.free_spacer_page import FreeSpacerPage
 from pages.editor.free_container_page import FreeContainerPage
 from pages.editor.plugin_page import PluginManager
+from pages.telemetry.telemetry_page import TelemetryPage
 
 
-# 进入界面编辑器-自由布局的编辑页
-@pytest.fixture
-def free_layout_page(home_page):
+def _open_free_layout(home_page):
+    """从当前模块进入界面编辑器的自由布局编辑态。"""
     editor = EditorPage(home_page)
     editor.editor_button.click()
     editor.edit_button.wait_for(state='visible')
@@ -28,6 +29,40 @@ def free_layout_page(home_page):
     editor.edit_manage_button.click()
     home_page.wait_for_load_state('networkidle')
     return FreeLayoutPage(home_page)
+
+
+# 进入界面编辑器-自由布局的编辑页
+@pytest.fixture
+def free_layout_page(home_page):
+    return _open_free_layout(home_page)
+
+
+# 自由布局 - 实时遥测 Fix
+# 复用当前场景已有节点；没有时只启动一颗。用例结束只恢复本 fixture 启动的
+# 仿真循环和节点，避免破坏原本就在运行的环境状态。
+@pytest.fixture
+def realtime_free_layout_page(home_page):
+    telemetry = TelemetryPage(home_page).open()
+    scenario = telemetry.load_current_scenario()
+    assert scenario, '当前界面选择的场景不存在或没有可读取的卫星配置'
+    _satellite, node_started = telemetry.ensure_one_active_node()
+
+    started_sim = not telemetry.play_button.is_disabled()
+    if started_sim:
+        telemetry.start_sim()
+    assert telemetry.wait_sim_time_advances() > 0, '仿真循环启动后时间没有前进'
+
+    try:
+        yield _open_free_layout(home_page)
+    finally:
+        if started_sim:
+            try:
+                telemetry.stop_sim()
+                telemetry.reset_sim()
+            except Exception as e:
+                print(f'[realtime_free_layout_page] 恢复仿真循环失败: {e}')
+        if node_started:
+            telemetry.stop_all_nodes()
 
 # 自由-文本
 @pytest.fixture
@@ -54,20 +89,10 @@ def free_chart_bound(free_chart_page):
     free_chart_page.click_widget()
     free_chart_page.open_bind_dialog()
     free_chart_page.bound_with = free_chart_page.bind_first_available()
-
-    # 交给用例之前，先把图弄到「选中 + 画面稳定」这个状态。
-    # 两个坑，都是实测出来的：
-    #   1. 图表【首次画出来的那一帧】比之后的重绘多画了点东西（像素指纹里表现为
-    #      颜色种类偏多），而且再也回不到那个状态；重绘过一次就进入稳定态，
-    #      之后改什么属性再改回来都能精确复原。
-    #   2. 点一下画布上的组件（click_widget）会让它重画一遍，又变回首帧那个样子。
-    # 所以顺序必须是：先点选中，再逼它重绘一遍。用例里【不要再点组件】，
-    # 否则第一张指纹又是首帧，「改完再改回来应该复原」就对不上了。
+    # 属性面板要在选中态才看得到。绑完再点一次选中，等系列名换成真实字段。
     free_chart_page.click_widget()
-    free_chart_page.pick_option(free_chart_page.prop_theme, '浅色')
-    free_chart_page.canvas_fingerprint()
-    free_chart_page.pick_option(free_chart_page.prop_theme, '深色')
-    free_chart_page.canvas_fingerprint()
+    expected = sorted(free_chart_page.bound_with['数值字段'])
+    free_chart_page.wait_chart(lambda o: sorted(eco.series_names(o)), expected)
     return free_chart_page
 
 
@@ -90,6 +115,15 @@ def free_gauge_page(free_layout_page):
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeGaugePage(free_layout_page.page)
 
+
+# 自由-仪表盘（运行中的真实遥测）
+@pytest.fixture
+def free_gauge_realtime(realtime_free_layout_page):
+    realtime_free_layout_page.add_component_button.click()
+    realtime_free_layout_page.component_item('仪表盘').click()
+    realtime_free_layout_page.canvas_widgets().first.wait_for(state='visible')
+    return FreeGaugePage(realtime_free_layout_page.page)
+
 # 自由-状态灯
 @pytest.fixture
 def free_status_page(free_layout_page):
@@ -98,6 +132,15 @@ def free_status_page(free_layout_page):
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeStatusPage(free_layout_page.page)
 
+
+# 自由-状态灯（运行中的真实遥测）
+@pytest.fixture
+def free_status_realtime(realtime_free_layout_page):
+    realtime_free_layout_page.add_component_button.click()
+    realtime_free_layout_page.component_item('状态灯').click()
+    realtime_free_layout_page.canvas_widgets().first.wait_for(state='visible')
+    return FreeStatusPage(realtime_free_layout_page.page)
+
 # 自由-指示牌
 @pytest.fixture
 def free_indicator_page(free_layout_page):
@@ -105,6 +148,24 @@ def free_indicator_page(free_layout_page):
     free_layout_page.component_item('指示牌').click()
     free_layout_page.canvas_widgets().first.wait_for(state='visible')
     return FreeIndicatorPage(free_layout_page.page)
+
+
+# 自由-指示牌（运行中的真实遥测）
+@pytest.fixture
+def free_indicator_realtime(realtime_free_layout_page):
+    realtime_free_layout_page.add_component_button.click()
+    realtime_free_layout_page.component_item('指示牌').click()
+    realtime_free_layout_page.canvas_widgets().first.wait_for(state='visible')
+    return FreeIndicatorPage(realtime_free_layout_page.page)
+
+
+# 自由-文本（运行中的真实遥测）
+@pytest.fixture
+def free_text_realtime(realtime_free_layout_page):
+    realtime_free_layout_page.add_component_button.click()
+    realtime_free_layout_page.component_item('文本').click()
+    realtime_free_layout_page.canvas_widgets().first.wait_for(state='visible')
+    return FreeTextPage(realtime_free_layout_page.page)
 
 # 自由-表格
 @pytest.fixture
@@ -135,7 +196,7 @@ def free_spacer_page(free_layout_page):
 # 直接打接口而不是去右侧抽屉点"复制 ID"：抽屉+剪贴板在 http（非 https）下
 # 用不了，接口稳定得多。
 # proxies={'http': None, ...}：这台机器有本地代理（127.0.0.1:8080），requests
-# 默认会走它、连不到内网的 192.168.1.185，这里显式绕过代理直连。
+# 默认会走它、连不到内网测试环境，这里显式绕过代理直连。
 @pytest.fixture(scope='session')
 def datasource_ids():
     url = read_yaml('config/config.yaml')['url'].rstrip('/') + '/api/datasources'

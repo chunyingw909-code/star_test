@@ -9,6 +9,10 @@ class FaultPlanLibraryPage:
     列表在主壳内（URL 仍 /zh-CN）；点开一张卡会跳到路由页 /fault/plans/<id>——另一套
     没有顶部导航的布局。详情只从这里点进去，所以不另起 page 对象，一并放这个类里。
 
+    卡片上直接就展示「操作步骤」和「预期效果」摘要，不用点进详情才能看到。部分卡片
+    还带一个「仿真 (S-xx)」按钮，点了跳到 /scenarios 带 id 的场景定义页
+    （ScenarioDefinitionPage），不是每张卡都有。
+
     对应用例：testcases/fault/test_fault_plan_library.py
     """
 
@@ -24,10 +28,12 @@ class FaultPlanLibraryPage:
         self.steps_heading = page.get_by_role('heading', name='操作步骤')
         self.expected_effect_heading = page.get_by_role('heading', name='预期效果')
         self._breadcrumb_items = page.locator('.MuiBreadcrumbs-root li')
-        self._step_items = page.locator('ol li')
+        self._step_items = self.steps_heading.locator(
+            'xpath=following-sibling::*[1]'
+        ).locator('li')
         self._linked_fault_line = page.get_by_text(re.compile(r'关联故障[:：]'))
 
-    # ---------- 列表：读（给 test_plan_library_has_plans / _search 用）----------
+    # ---------- 列表：读（给 test_plan_library_has_plans / _search / _simulate 用）----------
 
     def cards(self):
         """预案卡片集合。用于「列表非空」「搜索后剩几张」这类断言。"""
@@ -41,7 +47,27 @@ class FaultPlanLibraryPage:
         assert len(lines) >= 3, f'第 {index} 张预案卡字段不足 3 行：{lines}'
         return {'plan': lines[0], 'fault_code': lines[1], 'fault_name': lines[2]}
 
-    # ---------- 列表：动作（给 test_plan_library_search / _open_detail 用）----------
+    def card_steps_summary(self, index=0):
+        """第 index 张卡片上直接展示的操作步骤摘要（每步带「N. 」前缀），不用点进详情。"""
+        steps_box = self.cards().nth(index).locator('.MuiCardContent-root > div').nth(1)
+        return [t.strip() for t in steps_box.locator('span').all_inner_texts()]
+
+    def card_expected_summary(self, index=0):
+        """第 index 张卡片上直接展示的「预期: ...」这一行。"""
+        return self.cards().nth(index).locator('.MuiCardContent-root > span').last.inner_text().strip()
+
+    def card_index(self, plan_name):
+        """返回预案名精确等于 plan_name 的卡片索引；列表中没有返回 None。"""
+        for index in range(self.cards().count()):
+            if self.card_info(index)['plan'] == plan_name:
+                return index
+        return None
+
+    def simulate_button(self, index=0):
+        """第 index 张卡片的「仿真 (S-xx)」按钮；这张卡没有仿真入口就是个空 locator（count()==0）。"""
+        return self.cards().nth(index).get_by_role('button', name=re.compile('仿真'))
+
+    # ---------- 列表：动作（给 test_plan_library_search / _open_detail / _simulate 用）----------
 
     def search(self, keyword):
         """在「搜索预案...」框输入关键字（模糊匹配、实时生效），等卡片列表稳定。"""
@@ -56,6 +82,10 @@ class FaultPlanLibraryPage:
         self.back_to_library_button.wait_for(state='visible')
         return info
 
+    def open_simulate(self, index=0):
+        """点第 index 张卡片的「仿真」按钮，跳到场景定义页。调用方自行用 ScenarioDefinitionPage 断言。"""
+        self.simulate_button(index).click()
+
     # ---------- 详情：读（给 test_plan_library_open_detail 用）----------
 
     def detail_plan_name(self):
@@ -69,3 +99,9 @@ class FaultPlanLibraryPage:
     def step_texts(self):
         """详情页「操作步骤」下的步骤条目文本列表。"""
         return [t.strip() for t in self._step_items.all_inner_texts()]
+
+    def expected_effect_text(self):
+        """详情页「预期效果」标题紧随其后的实际效果文本。"""
+        return self.expected_effect_heading.locator(
+            'xpath=following-sibling::*[1]'
+        ).inner_text().strip()

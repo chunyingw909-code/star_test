@@ -187,6 +187,25 @@ def test_status_combined(free_status_page):
     assert sp.lamp_size() == (60, 60), '灯珠该 60x60'
 
 
+# ==================== 实时遥测 ====================
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-状态灯组件')
+@allure.title('绑定电源运行模式后，状态灯显示“正常”、绿色灯珠和 LIVE 状态')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_status_realtime_telemetry(free_status_realtime):
+    sp = free_status_realtime
+    sp.click_widget()
+
+    binding = sp.bind_realtime('电源运行模式 · power')
+
+    assert binding['item'] == '电源运行模式 · power'
+    expect(sp.widget_live).to_have_text('● LIVE')
+    expect(sp.widget_status).to_have_text('正常')
+    assert sp.lamp_color() == 'rgb(47, 194, 91)', \
+        f'“正常”状态应显示绿色灯珠，实际 {sp.lamp_color()}'
+
+
 # ==================== 通用样式（共用用例集）====================
 
 class TestStatusCommonStyle(CommonStyleCases):

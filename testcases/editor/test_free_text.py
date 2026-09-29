@@ -559,7 +559,7 @@ def test_text_weight_bold(free_text_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-文本组件')
-@allure.title('切换字重为中等 (500)')
+@allure.title('切换字重为中等 (600)')
 @allure.severity(allure.severity_level.NORMAL)
 def test_text_weight_medium(free_text_page):
     free_text_page.click_widget()
@@ -569,7 +569,7 @@ def test_text_weight_medium(free_text_page):
     expect(free_text_page.prop_weight).to_have_text('中等')
     # 画布断言
     text_el = free_text_page.widget_text()
-    expect(text_el).to_have_css('font-weight', '500')
+    expect(text_el).to_have_css('font-weight', '600')
     expect(text_el).to_have_css('font-size', '24px')
     expect(text_el).to_have_css('color', 'rgb(255, 255, 255)')
 
@@ -608,6 +608,27 @@ def test_text_binding_mode_dynamic(free_text_page):
     expect(text_el).to_have_css('font-size', '24px')
     expect(text_el).to_have_css('color', 'rgb(255, 255, 255)')
     expect(text_el).to_have_css('font-weight', '700')
+
+
+# ==================== 实时遥测 ====================
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-文本组件')
+@allure.title('动态文本绑定母线电压后，显示真实的 20–40V 工程值和 LIVE 状态')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_text_realtime_telemetry(free_text_realtime):
+    tp = free_text_realtime
+    tp.click_widget()
+    tp.pick_option(tp.prop_binding_mode, '动态')
+
+    binding = tp.bind_realtime('母线电压（V） · power')
+
+    assert binding['item'] == '母线电压（V） · power'
+    expect(tp.widget_live).to_have_text('● LIVE')
+    expect(tp.widget_text()).to_contain_text('V')
+    value = tp.live_value()
+    assert 20 <= value <= 40, f'动态文本应显示 20–40V 的母线电压，实际 {value}V'
+    expect(tp.widget_text()).not_to_contain_text('标题')
 
 
 # ==================== 删除 ====================

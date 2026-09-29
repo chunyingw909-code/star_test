@@ -1,10 +1,15 @@
 import re
 
-from common.utils import wait_until_stable
+from common.utils import fault_root, wait_until_stable
 
 
 class FaultInjectionPage:
-    """故障/预案库 -「故障注入」子标签（主壳内，URL 仍 /zh-CN）。
+    """故障/预案库 -「故障注入」子标签。
+
+    两种入口内容完全一致（面板结构/故障类型列表/注入按钮/默认时长/活动故障面板全部
+    相同），差别只在：内嵌 Tab 版本（主壳内点「故障注入」进，URL 仍 /zh-CN）外层有
+    data-testid=fault-catalog-root；独立路由版（/zh-CN/fault/inject）没有这层包裹。
+    root 用 fault_root() 兜底，两边通用。
 
     左侧注入面板：
       - 卫星平台 / 信道等效站 ToggleButtonGroup（aria-pressed 标当前档）
@@ -14,8 +19,17 @@ class FaultInjectionPage:
         数字输入 + 「注入故障」按钮；点「注入故障」发 POST /api/sim/fault-inject。
     右侧：
       - 活动故障 (N) 面板（含一个「预案库」按钮）—— 仿真 STOPPED 时注入请求 200 但不产生
-        活动故障，N=0 时显示「无活动故障」
-      - FDIR 日志 面板 —— 无日志时显示「无 FDIR 日志」
+        活动故障，N=0 时显示「无活动故障」。每条活动故障是一个带 Chip 的条目（不是
+        <li>）：严重等级 Chip + "卫星/分系统 故障名" 文案 + 倒计时("Ns") + 关闭(×)按钮。
+        点 × 或倒计时归零都会让这条消失、FDIR 日志追加一条 RECOVERY 记录。
+      - FDIR 日志 面板 —— 无日志时显示「无 FDIR 日志」。每条日志也是带 Chip 的条目：
+        INJECTION（橙）或 RECOVERY（绿）+ 一行文案。
+      - 「预案库」按钮弹一个对话框「故障预案库」：左侧预案列表，点一条右侧出该预案的
+        处置步骤 + 一个「执行预案」按钮——预案没配置结构化执行指令时这个按钮是禁用的
+        （title 和按钮下方的文案会说明原因）。
+
+    活动故障需要仿真循环在跑（顶部 T 在走）才会真正出现，用
+    testcases/fault/conftest.py 里的 running_injection_page fixture。
 
     对应用例：testcases/fault/test_fault_injection.py
     """
@@ -26,7 +40,7 @@ class FaultInjectionPage:
     # ---------- 定位（全部集中在 __init__）----------
     def __init__(self, page):
         self.page = page
-        self.root = page.get_by_test_id('fault-catalog-root')
+        self.root = fault_root(page)
         self.panel_heading = self.root.get_by_role('heading', name='故障注入')
         # 平台切换
         self.platform_toggle = self.root.get_by_role('button', name='卫星平台')
@@ -50,6 +64,15 @@ class FaultInjectionPage:
         self.plan_library_button = self.active_faults_panel.get_by_role('button', name='预案库')
         self.fdir_panel = page.locator('.MuiPaper-outlined').filter(has_text='FDIR 日志')
         self.fdir_empty = self.fdir_panel.get_by_text('无 FDIR 日志')
+        # 活动故障 / FDIR 日志的条目：每条都带一个 MuiChip（严重等级 / INJECTION / RECOVERY），
+        # 结构是 Chip + 文案 的 Box，不是 <li>；用 Chip 的父级作为一条记录的容器。
+        self._active_fault_rows = self.active_faults_panel.locator('.MuiChip-root').locator('xpath=..')
+        self._fdir_log_rows = self.fdir_panel.locator('.MuiChip-root').locator('xpath=..')
+        # 预案库弹窗（点「预案库」按钮才有）
+        self.plan_library_dialog = page.get_by_role('dialog').filter(has_text='故障预案库')
+        self._plan_library_items = self.plan_library_dialog.get_by_role('button')
+        self.plan_library_steps_label = self.plan_library_dialog.get_by_text('处置步骤:')
+        self.plan_library_execute_button = self.plan_library_dialog.get_by_role('button', name='执行预案')
 
     # ---------- 读（给 test_injection_panel / _select_fault_type / _side_panels 用）----------
 
@@ -76,12 +99,33 @@ class FaultInjectionPage:
         return int(m.group(1)) if m else None
 
     def active_fault_items(self):
-        """活动故障面板里的条目（li）。N==0 时为 0 条、显示「无活动故障」。"""
-        return self.active_faults_panel.locator('li')
+        """活动故障面板里的条目。N==0 时为 0 条、显示「无活动故障」。"""
+        return self._active_fault_rows
+
+    def active_fault_countdown(self, index=0):
+        """第 index 条活动故障的倒计时文案（如 "20s"）。给 test_injection_submit_* 用。"""
+        return self._active_fault_rows.nth(index).locator('span.MuiTypography-caption').last.inner_text()
 
     def fdir_log_items(self):
-        """FDIR 日志面板里的条目（li）。无日志时为 0 条、显示「无 FDIR 日志」。"""
-        return self.fdir_panel.locator('li')
+        """FDIR 日志面板里的条目。无日志时为 0 条、显示「无 FDIR 日志」。"""
+        return self._fdir_log_rows
+
+    def fdir_log_info(self, index=0):
+        """第 index 条 FDIR 日志的 {type, text}：type 是 Chip 文案（INJECTION/RECOVERY）。
+        日志按发生时间从旧到新排列，最新一条在最后，见 latest_fdir_log()。"""
+        row = self._fdir_log_rows.nth(index)
+        return {
+            'type': row.locator('.MuiChip-root').inner_text().strip(),
+            'text': row.locator('span.MuiTypography-caption').inner_text().strip(),
+        }
+
+    def latest_fdir_log(self):
+        """最新一条 FDIR 日志的 {type, text}（日志从旧到新排列，新的追加在末尾）。"""
+        row = self._fdir_log_rows.last
+        return {
+            'type': row.locator('.MuiChip-root').inner_text().strip(),
+            'text': row.locator('span.MuiTypography-caption').inner_text().strip(),
+        }
 
     # ---------- 动作（给 test_injection_toggle / _*_select / _search / _select_fault_type / _duration 用）----------
 
@@ -119,3 +163,24 @@ class FaultInjectionPage:
         """点选某个故障类型，等「注入故障」按钮出现。"""
         self.fault_type_items().filter(has_text=name).first.click()
         self.inject_button.wait_for(state='visible')
+
+    # ---------- 动作（给 test_injection_submit_* / _plan_library_dialog 用）----------
+
+    def close_active_fault(self, index=0):
+        """点第 index 条活动故障的关闭(×)按钮，手动标记恢复。"""
+        self._active_fault_rows.nth(index).get_by_test_id('CloseIcon').click()
+
+    def open_plan_library_dialog(self):
+        """点「预案库」按钮，等「故障预案库」弹窗和左侧预案列表都出现。"""
+        self.plan_library_button.click()
+        self.plan_library_dialog.wait_for(state='visible')
+        self._plan_library_items.first.wait_for(state='visible')
+
+    def plan_library_items(self):
+        """弹窗左侧的预案条目。"""
+        return self._plan_library_items
+
+    def select_plan_library_item(self, name):
+        """点弹窗左侧某个预案，等右侧「处置步骤:」出现。"""
+        self._plan_library_items.filter(has_text=name).first.click()
+        self.plan_library_steps_label.wait_for(state='visible')

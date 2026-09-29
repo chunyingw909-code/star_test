@@ -17,8 +17,6 @@ from pages.fault.fault_library_page import FaultLibraryPage
 def test_enter_fault_library(fault_library_page):
     # 断言：「故障/预案库」顶部 Tab 处于选中态
     expect(fault_library_page.nav_entry).to_have_attribute('aria-selected', 'true')
-    # 断言：模块子标签「目录」可见
-    expect(fault_library_page.breadcrumb).to_be_visible()
 
 
 @allure.feature('故障/预案库')

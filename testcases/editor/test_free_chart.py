@@ -9,11 +9,9 @@
                                       ❌ 不稳定
    这几样【故意不写用例】，面板定位也不留。等开发做完再补。
 
-⚠️ 页面没把 echarts 挂到全局，读不到图表的 option，但【画布的像素读得到】。
-   把画布切成九宫格取「像素指纹」，改属性前后一比，就能断言画布真的变了、
-   而且变在对的区域（工具见 common/canvas_pixels.py，实测连采 4 次指纹一模一样）。
-   主题、图表类型、显示图例、图例位置、线宽、数据缩放 都是这么断言的。
-   警告线 / 危险线 / 填充透明度 / 提示框 也都是这么断言的（提示框要 hover）。
+⚠️ 页面没把 echarts 挂到全局，但 echarts-for-react 实例上能读到正在画的 option。
+   绑数据、换类型、挪图例、改线宽、设阈值 —— 都断言 option 里对应字段，
+   而不是「像素跟之前不一样」。
 
 ⚠️ 【定时刷新配了不生效】。图表取数走 POST /api/datasources/<id>/query，
    把定时触发设成「刷新数据」、间隔设成 1 秒，编辑态和预览态各盯十几秒，
@@ -23,11 +21,15 @@
    所以本文件末尾没有挂通用样式的共用用例集。
 """
 import allure
+import pytest
 from playwright.sync_api import expect
 
-from common.canvas_pixels import assert_changed, assert_same, region_brightness
+from common import echarts_option as eco
 from common.number_input import check_number_spinner
 from testcases.editor.click_action_cases import ClickActionCases
+
+SERIES_TYPE = {'折线': 'line', '柱状': 'bar', '饼图': 'pie'}
+DEMO_SERIES = {'示范量 A', '示范量 B'}
 
 
 # ==========================================================================
@@ -171,7 +173,8 @@ def test_chart_timer_all_options(free_chart_page):
         cp.pick_option(cp.prop_timer_action, name)
         # 右侧断言：选「无」等于清空，下拉里显示的是空占位符而不是「无」两个字
         shown = cp.NONE_DISPLAY if name == cp.NONE_OPTION else name
-        expect(cp.prop_timer_action, f'定时触发选了「{name}」之后应显示 {shown!r}').to_have_text(shown)
+        expect(cp.prop_timer_action,
+               f'定时触发选了「{name}」之后应显示 {shown!r}').to_have_text(shown)
 
 
 @allure.feature('界面编辑器')
@@ -205,315 +208,319 @@ def test_chart_combined(free_chart_page):
     expect(cp.prop_theme).to_have_text('浅色')
     expect(cp.prop_legend_position).to_have_text('顶部')
     expect(cp.prop_warning_line).to_have_value('80')
-    # 画布断言：只有标题看得出来
     expect(cp.widget_title).to_have_text('母线电压趋势')
+    # 画布上的图：类型、图例位置、阈值线都按刚才的操作落上去，不是只改了面板
+    cp.wait_chart(lambda o: set(eco.series_types(o)), {'bar'})
+    assert cp.chart_legend_side() == '顶部', f'图例应在顶部，实际 {cp.chart_legend_side()}'
+    assert 80.0 in eco.mark_line_y_values(cp.chart_option()), (
+        f'警告线 80 应画在图上，实际 markLine={eco.mark_line_y_values(cp.chart_option())}')
 
 
 # ==========================================================================
-# 二、绑好数据源之后 —— 改属性，画布上真看得出来
+# 二、绑好数据源之后 —— 人改一处，图上就要是那一处
 # ==========================================================================
-# 图表画在 canvas 上，DOM 里读不出主题 / 图例位置这些，但画布的像素读得到。
-# 把画布切成九宫格取指纹，改属性前后一比就知道变没变、变在哪块区域。
-# 实测同一状态下连采 4 次指纹一模一样，不会飘。工具见 common/canvas_pixels.py。
+# 断言读正在画的 echarts option（系列类型 / 图例 / 阈值 / 字段名 / 数据点），
+# 不拿「像素跟刚才不一样」当通过。
 #
-# ⚠️ 绑定时数值字段要【全勾】，别只勾第一个：这张表三个数值字段里只有一个真有数据，
-#    另外两个整列都是 0。只勾第一个的话图上是一条贴着底的直线，警告线 / 危险线 /
-#    填充透明度改了都看不出来 —— 那不是功能坏了，是绑错了字段。见 bind_pick_fields。
-#
-# ⚠️ 阈值线（警告线 / 危险线）要设在数据的取值范围【之内】才画得出来。设成远超范围的
-#    值，线落到图框外面，画布上自然看不见 —— 这是正常的，下面有一条用例把它固定住。
-#
-# ⚠️ 提示框（显示提示）是鼠标悬停才画出来的，静态画面上没有，要 hover 才测得到。
+# ⚠️ 数值字段全勾：这张表里常常只有一列真有起伏，只勾第一列会绑到全 0 的列。
+
+def _legend_text_color(opt):
+    return eco.unwrap_style(eco.legend(opt).get('textStyle')).get('color')
+
+
+def _css_brightness(color):
+    """#bbb -> 187。浅色主题图例字更深，亮度应更低。"""
+    if not color or not isinstance(color, str) or not color.startswith('#'):
+        return None
+    h = color[1:]
+    if len(h) == 3:
+        h = ''.join(ch * 2 for ch in h)
+    if len(h) != 6:
+        return None
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (r + g + b) / 3
+
+
+def _series_numbers(opt):
+    nums = []
+    for series in eco.series_list(opt):
+        nums.extend(eco.numeric_points(series.get('data')))
+    return nums
+
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后切换主题，画布真的跟着变，切回来复原')
+@allure.title('绑好之后切浅色主题，图例文字变深；切回深色复原')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_theme_changes_canvas(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
-    dark = cp.canvas_fingerprint()
+    dark_opt = cp.chart_option()
+    dark_color = _legend_text_color(dark_opt)
+    assert dark_color, f'深色主题应有图例文字颜色，实际 legend={eco.legend(dark_opt)}'
 
     cp.pick_option(cp.prop_theme, '浅色')
-    light = cp.canvas_fingerprint()
-    # 右侧断言
     expect(cp.prop_theme).to_have_text('浅色')
-    # 画布断言
-    assert_changed(dark, light, '主题切成浅色')
+    light_color = None
+    for _ in range(40):
+        light_color = _legend_text_color(cp.chart_option())
+        if light_color and light_color != dark_color:
+            break
+        cp.page.wait_for_timeout(150)
+    assert light_color != dark_color, (
+        f'浅色主题图例文字颜色应与深色不同，实际都是 {dark_color}')
+    dark_b, light_b = _css_brightness(dark_color), _css_brightness(light_color)
+    if dark_b is not None and light_b is not None:
+        assert light_b < dark_b, (
+            f'浅色主题图例字应更深，深色={dark_color}({dark_b:.0f}) '
+            f'浅色={light_color}({light_b:.0f})')
 
     cp.pick_option(cp.prop_theme, '深色')
-    back = cp.canvas_fingerprint()
-    # 画布断言：切回深色应该跟一开始一模一样
-    assert_same(dark, back, '主题切回深色')
+    cp.wait_chart(_legend_text_color, dark_color)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后逐项切换图表类型，画布每种都不一样')
+@allure.title('绑好之后切图表类型，折线/柱状/饼图各自画成对应 series.type')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_chart_type_changes_canvas(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
+    bound_names = list(cp.bound_with['数值字段'])
 
-    prints = {}
-    for name in cp.CHART_TYPES:
+    for name, series_type in SERIES_TYPE.items():
         cp.pick_option(cp.prop_chart_type, name)
-        # 右侧断言
         expect(cp.prop_chart_type, f'图表类型应显示 {name}').to_have_text(name)
-        # 画布断言：换完类型图还在
+        opt = cp.wait_chart(lambda o: set(eco.series_types(o)), {series_type})
         expect(cp.widget_canvas, f'切成 {name} 之后画布上应该还有图').to_have_count(1)
-        prints[name] = cp.canvas_fingerprint()
+        # 换类型不该把绑好的字段丢了
+        names = eco.series_names(opt)
+        if series_type == 'pie':
+            # 当前产品把横轴类别（时间戳）当成扇区名，不是数值字段名
+            slices = eco.as_list(eco.series_list(opt)[0].get('data'))
+            pie_nums = eco.numeric_points(slices)
+            assert len(slices) >= 2, f'饼图应有多块扇形，实际 {slices[:6]}'
+            assert pie_nums, f'饼图扇区应有数值，实际 {slices[:6]}'
+        else:
+            assert sorted(names) == sorted(bound_names), (
+                f'切成{name}后系列名应仍是绑定字段 {bound_names}，实际 {names}')
 
-    # 画布断言：三种类型画出来的东西两两不同
-    for a, b in [('折线', '柱状'), ('折线', '饼图'), ('柱状', '饼图')]:
-        assert_changed(prints[a], prints[b], f'从{a}换成{b}')
-    # 饼图是一圈彩色扇形，颜色种类明显比折线多
-    assert prints['饼图']['colors'] > prints['折线']['colors'], (
-        f"饼图的颜色应该比折线丰富，实际 饼图={prints['饼图']['colors']} "
-        f"折线={prints['折线']['colors']}")
+    cp.pick_option(cp.prop_chart_type, '折线')
+    cp.wait_chart(lambda o: sorted(eco.series_names(o)), sorted(bound_names))
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后关掉图例，画布上的图例真的没了，打开又回来')
+@allure.title('绑好之后关掉图例，option.legend.show=false；打开又回来')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_legend_toggle_changes_canvas(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
-    on = cp.canvas_fingerprint()
+    assert cp.chart_legend_shown() is True
 
     cp.switch_radio('显示图例', '否').check()
-    off = cp.canvas_fingerprint()
-    # 右侧断言
     expect(cp.switch_radio('显示图例', '否')).to_be_checked()
-    # 画布断言
-    assert_changed(on, off, '关掉图例')
+    cp.wait_chart(lambda o: bool(eco.legend(o).get('show', True)), False)
 
     cp.switch_radio('显示图例', '是').check()
-    back = cp.canvas_fingerprint()
-    # 画布断言
-    assert_same(on, back, '重新打开图例')
+    cp.wait_chart(lambda o: bool(eco.legend(o).get('show', True)), True)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后挪图例位置，图例真的挪到对应的那一边')
+@allure.title('绑好之后挪图例，顶部/底部/左侧分别落到对应方位')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_legend_position_moves_legend(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
-
-    # 先关掉图例，拿一张「没有图例」的底图，后面拿各个位置跟它比
-    cp.switch_radio('显示图例', '否').check()
-    no_legend = cp.canvas_fingerprint()
-    cp.switch_radio('显示图例', '是').check()
-
-    # 图例位置 -> 图例应该出现在画布的哪一块区域
-    where = {'顶部': 'top', '底部': 'bottom', '左侧': 'left'}
-    for name, region in where.items():
+    for name in cp.LEGEND_POSITIONS:
         cp.pick_option(cp.prop_legend_position, name)
-        fp = cp.canvas_fingerprint()
-        # 右侧断言
         expect(cp.prop_legend_position, f'图例位置应显示 {name}').to_have_text(name)
-        # 画布断言：那一块区域比没有图例时更亮（图例文字画上去了）
-        lit = region_brightness(fp, region)
-        dark = region_brightness(no_legend, region)
-        assert lit > dark, (
-            f'图例放在{name}时，画布{region}区应该比没有图例时更亮，'
-            f'实际 {dark:.1f} -> {lit:.1f}')
+        cp.wait_chart(eco.legend_side, name)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后把线宽调粗，画布上的线真的变粗，调回来复原')
+@allure.title('绑好之后把线宽调到 5，折线 series.lineStyle.width 就是 5')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_bound_line_width_changes_canvas(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
-    thin = cp.canvas_fingerprint()
-
     cp.prop_line_width.fill('5')
-    thick = cp.canvas_fingerprint()
-    # 右侧断言
+    cp.prop_line_width.blur()
     expect(cp.prop_line_width).to_have_value('5')
-    # 画布断言：线画粗了，落在线上的像素更多，那一块更亮
-    assert_changed(thin, thick, '线宽调到 5')
-    assert region_brightness(thick, 'bottom') > region_brightness(thin, 'bottom'), (
-        '线加粗后画布下半部分应该更亮')
+    cp.wait_chart(lambda o: eco.line_widths(o)[:1], [5.0])
 
     cp.prop_line_width.fill('1.5')
-    back = cp.canvas_fingerprint()
-    # 画布断言
-    assert_same(thin, back, '线宽调回 1.5')
+    cp.prop_line_width.blur()
+    cp.wait_chart(lambda o: eco.line_widths(o)[:1], [1.5])
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后打开数据缩放，画布底部多出缩放条')
+@allure.title('绑好之后打开数据缩放，option.dataZoom 出现滑块')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_bound_data_zoom_changes_canvas(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
-    off = cp.canvas_fingerprint()
+    assert eco.data_zoom_visible(cp.chart_option()) is False
 
     cp.switch_radio('数据缩放', '是').check()
-    on = cp.canvas_fingerprint()
-    # 右侧断言
     expect(cp.switch_radio('数据缩放', '是')).to_be_checked()
-    # 画布断言：缩放条画在底部，那一块会明显变亮
-    assert_changed(off, on, '打开数据缩放')
-    assert region_brightness(on, 'bottom') > region_brightness(off, 'bottom'), (
-        '打开数据缩放后画布底部应该更亮（多了一条缩放条）')
+    cp.wait_chart(eco.data_zoom_visible, True)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后设警告线，画布上真的多出一条线，清掉复原')
+@allure.title('绑好之后设警告线 0.5，图上 markLine 就是 0.5；清掉后没有这条线')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_warning_line_draws_on_canvas(free_chart_bound):
     cp = free_chart_bound
-    before = cp.canvas_fingerprint()
-
-    # 阈值要落在数据的取值范围里，画出来才看得见
-    cp.prop_warning_line.fill('0.5')
-    after = cp.canvas_fingerprint()
-    # 右侧断言
-    expect(cp.prop_warning_line).to_have_value('0.5')
-    # 画布断言
-    assert_changed(before, after, '警告线设成 0.5')
+    nums = _series_numbers(cp.chart_option())
+    assert nums, '绑好之后图上应该有数据点'
+    lo, hi = min(nums), max(nums)
+    # 警告线要落在数据范围内，人才看得到；取区间中点，不写死某张表的 0.5
+    value = round((lo + hi) / 2, 4) or 0.5
+    cp.prop_warning_line.fill(str(value))
+    shown = cp.prop_warning_line.input_value()
+    expect(cp.prop_warning_line).to_have_value(shown)
+    threshold = float(shown)
+    cp.wait_chart(
+        lambda o: any(abs(v - threshold) < 1e-6 for v in eco.mark_line_y_values(o)), True)
 
     cp.prop_warning_line.fill('0')
-    back = cp.canvas_fingerprint()
-    # 画布断言
-    assert_same(before, back, '警告线清回 0')
+    cp.wait_chart(
+        lambda o: all(abs(v - threshold) > 1e-6 for v in eco.mark_line_y_values(o)), True)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后设危险线，画布上真的多出一条线，清掉复原')
+@allure.title('绑好之后设危险线，图上 markLine 带上这个阈值；清掉后去掉')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_danger_line_draws_on_canvas(free_chart_bound):
     cp = free_chart_bound
-    before = cp.canvas_fingerprint()
-
-    cp.prop_danger_line.fill('2')
-    after = cp.canvas_fingerprint()
-    # 右侧断言
-    expect(cp.prop_danger_line).to_have_value('2')
-    # 画布断言
-    assert_changed(before, after, '危险线设成 2')
+    nums = _series_numbers(cp.chart_option())
+    assert nums, '绑好之后图上应该有数据点'
+    lo, hi = min(nums), max(nums)
+    value = round(lo + (hi - lo) * 0.8, 4) if hi != lo else (hi + 1 if hi else 1)
+    cp.prop_danger_line.fill(str(value))
+    shown = cp.prop_danger_line.input_value()
+    expect(cp.prop_danger_line).to_have_value(shown)
+    threshold = float(shown)
+    cp.wait_chart(
+        lambda o: any(abs(v - threshold) < 1e-6 for v in eco.mark_line_y_values(o)), True)
 
     cp.prop_danger_line.fill('0')
-    back = cp.canvas_fingerprint()
-    # 画布断言
-    assert_same(before, back, '危险线清回 0')
+    cp.wait_chart(
+        lambda o: all(abs(v - threshold) > 1e-6 for v in eco.mark_line_y_values(o)), True)
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('危险线设成远超数据范围的值，线落在图外，画布看不出变化')
+@allure.title('危险线远超数据范围时，option 里仍记下这个阈值')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_bound_danger_line_out_of_range(free_chart_bound):
-    # 这不是缺陷：阈值线画在纵轴对应的位置上，值超出数据范围就落到图框外面去了，
-    # 画布上自然看不见。用例把这个边界固定下来，免得以后有人以为是没生效。
+    # 产品会把阈值写进 markLine；值超出数据范围时线落在图框外，人看不见。
+    # 这里断言「配置确实吃进去了」，并且这个值确实大于当前数据最大值。
     cp = free_chart_bound
-    before = cp.canvas_fingerprint()
-
-    cp.prop_danger_line.fill('95')
-    after = cp.canvas_fingerprint()
-    # 右侧断言：值确实写进去了
-    expect(cp.prop_danger_line).to_have_value('95')
-    # 画布断言：超出范围，画不出来
-    assert_same(before, after, '危险线设成超出数据范围的 95')
+    nums = _series_numbers(cp.chart_option())
+    assert nums, '绑好之后图上应该有数据点'
+    value = int(max(nums) * 10 + 95)
+    cp.prop_danger_line.fill(str(value))
+    expect(cp.prop_danger_line).to_have_value(str(value))
+    cp.wait_chart(
+        lambda o: any(abs(v - value) < 1e-6 for v in eco.mark_line_y_values(o)), True)
+    assert value > max(nums), (
+        f'这条用例要求阈值超出数据，实际阈值 {value}、数据最大 {max(nums)}')
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后把填充透明度拉满，折线下方真的填上颜色，调回复原')
+@allure.title('绑好之后填充透明度拉到 1，折线 areaStyle.opacity 就是 1')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_fill_opacity_fills_area(free_chart_bound):
     cp = free_chart_bound
-    before = cp.canvas_fingerprint()
-
     cp.prop_fill_opacity.fill('1')
-    after = cp.canvas_fingerprint()
-    # 右侧断言
+    cp.prop_fill_opacity.blur()
     expect(cp.prop_fill_opacity).to_have_value('1')
-    # 画布断言：线下方填上了一大片颜色，整幅平均色会明显变化
-    assert_changed(before, after, '填充透明度拉到 1')
-    assert region_brightness(after, 'bottom') > region_brightness(before, 'bottom'), \
-        '填充之后折线下方应该更亮（填上颜色了）'
+    cp.wait_chart(lambda o: [round(v, 2) for v in eco.area_opacities(o)[:1]], [1.0])
 
     cp.prop_fill_opacity.fill('0')
-    back = cp.canvas_fingerprint()
-    # 画布断言
-    assert_same(before, back, '填充透明度调回 0')
+    cp.prop_fill_opacity.blur()
+    cp.page.wait_for_timeout(600)
+    opacities = eco.area_opacities(cp.chart_option())
+    assert not opacities or opacities[0] == 0, (
+        f'填充调回 0 后不应再铺色，实际 opacity={opacities}')
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('显示提示=是：鼠标移到图上弹出提示框，移开就消失')
+@allure.title('显示提示=是：悬停后提示里带系列名和这个点的数值')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_tooltip_shows_on_hover(free_chart_bound):
-    # 提示框是悬停才画出来的，静态画面上本来就没有，所以必须真的 hover 才测得到
     cp = free_chart_bound
     expect(cp.switch_radio('显示提示', '是')).to_be_checked()
-    idle = cp.canvas_fingerprint()
+    assert cp.chart_tooltip_shown() is True
 
-    cp.hover_chart()
-    hovering = cp.canvas_fingerprint()
-    # 画布断言：提示框画上去了
-    assert_changed(idle, hovering, '鼠标移到图上')
+    opt = cp.chart_option()
+    series = eco.series_list(opt)
+    assert series, '绑好之后应有系列和数据点'
+
+    point = cp.hover_chart_data_point()
+    expect(cp.chart_tooltip).to_be_visible()
+    text = cp.chart_tooltip.inner_text()
+
+    assert str(point['xValue']) in text, (
+        f'提示框应显示横轴值 {point["xValue"]}，实际 {text!r}')
+    for item in series:
+        name = item.get('name')
+        values = eco.numeric_points([eco.as_list(item.get('data'))[point['dataIndex']]])
+        assert name and name in text, f'提示框应显示系列名 {name!r}，实际 {text!r}'
+        assert values, f'系列 {name!r} 的悬停点应该有数值'
+        assert f'{values[0]:g}' in text, (
+            f'提示框应显示 {name!r} 的值 {values[0]:g}，实际 {text!r}')
 
     cp.unhover_chart()
-    away = cp.canvas_fingerprint()
-    # 画布断言：移开后提示框消失，画布复原
-    assert_same(idle, away, '鼠标移开')
+    expect(cp.chart_tooltip).to_be_hidden()
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('显示提示=否：鼠标移到图上也不弹提示框')
+@allure.title('显示提示=否：option.tooltip.show=false，悬停也不出提示文字')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_chart_bound_tooltip_hidden_when_off(free_chart_bound):
     cp = free_chart_bound
     cp.switch_radio('显示提示', '否').check()
-    # 右侧断言
     expect(cp.switch_radio('显示提示', '否')).to_be_checked()
+    cp.wait_chart(lambda o: bool(eco.tooltip(o).get('show', True)), False)
 
-    idle = cp.canvas_fingerprint()
-    cp.hover_chart()
-    hovering = cp.canvas_fingerprint()
-    # 画布断言：关掉提示后，hover 上去画布纹丝不动
-    assert_same(idle, hovering, '关掉提示后鼠标移到图上')
+    cp.hover_chart_data_point()
+    expect(cp.chart_tooltip, '关掉提示后悬停真实数据点也不应出现提示').to_be_hidden()
     cp.unhover_chart()
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('绑好之后改标题，图还在')
+@allure.title('绑好之后改标题，系列数据和字段名都还在')
 @allure.severity(allure.severity_level.NORMAL)
 def test_chart_bound_still_renders_after_title_change(free_chart_bound):
     cp = free_chart_bound
-    # 不要再 click_widget：点一下图会重画，第一张指纹就成了首帧，对不上后面的稳定态
+    before_names = cp.chart_series_names()
+    before_count = len(_series_numbers(cp.chart_option()))
+
     cp.prop_title.fill('母线电压趋势')
-    # 右侧断言
     expect(cp.prop_title).to_have_value('母线电压趋势')
-    # 画布断言：标题变了，图还在
     expect(cp.widget_title).to_have_text('母线电压趋势')
     expect(cp.widget_canvas).to_have_count(1)
+    assert cp.chart_series_names() == before_names, (
+        f'改标题不该丢掉绑定字段，之前 {before_names}，现在 {cp.chart_series_names()}')
+    assert len(_series_numbers(cp.chart_option())) == before_count, '改标题不该把数据点弄丢'
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('[现状] 定时刷新配好了也不会真的定时取数')
+@allure.title('定时刷新设为 1 秒后，会持续重新请求数据源')
 @allure.severity(allure.severity_level.CRITICAL)
-def test_chart_timer_does_not_actually_refresh(free_chart_bound):
-    # ⚠️ 现状记录（非期望）：图表取数走 POST /api/datasources/<id>/query。
-    # 绑好数据源、把定时触发设成「刷新数据」、间隔设成最小的 1 秒，
-    # 编辑态和预览态各盯十几秒，这个接口一次都不会再发 —— 定时刷新没接上，
-    # 能选能填，但不刷新。
-    # TODO(bug) 期望：每隔 N 秒重新取一次数。开发修好后把下面的 == 0 改成 >= 2。
+@pytest.mark.xfail(
+    reason='产品缺陷：定时刷新配置已保存，但不会按间隔重新请求数据源',
+    strict=True,
+)
+def test_chart_timer_refreshes_data(free_chart_bound):
+    # 图表取数走 POST /api/datasources/<id>/query；1 秒刷新在 5 秒内至少应再取两次。
     cp = free_chart_bound
     page = cp.page
 
@@ -527,11 +534,9 @@ def test_chart_timer_does_not_actually_refresh(free_chart_bound):
     # 从这一刻起数图表的取数请求
     queries = []
     page.on('request', lambda r: queries.append(r.url) if '/query' in r.url else None)
-    page.wait_for_timeout(12000)
+    page.wait_for_timeout(5000)
 
-    assert len(queries) == 0, (
-        f'现状是定时刷新不生效，12 秒内不该有取数请求，实际发了 {len(queries)} 次；'
-        f'如果开发已经修好，请把这条用例改成断言 >= 2')
+    assert len(queries) >= 2, f'5 秒内至少应刷新 2 次，实际只有 {len(queries)} 次'
 
 
 # ==========================================================================
@@ -597,7 +602,8 @@ def test_chart_bind_every_data_source_option(free_chart_page):
             # 弹窗断言：灰的就该是灰的
             cp.bind_field('数据来源').click()
             expect(cp.page.get_by_role('option', name=name, exact=True),
-                   f'「{name}」标着不可用，应该是点不动的')                 .to_have_attribute('aria-disabled', 'true')
+                   f'「{name}」标着不可用，应该是点不动的') \
+                .to_have_attribute('aria-disabled', 'true')
             cp.page.keyboard.press('Escape')
             cp.page.wait_for_timeout(400)
             continue
@@ -617,7 +623,8 @@ def test_chart_bind_every_data_source_option(free_chart_page):
     # 不同来源要填的东西不一样，字段不该长得完全一致
     if len(fields_by_source) > 1:
         combos = list(fields_by_source.values())
-        assert any(c != combos[0] for c in combos[1:]),             f'不同数据来源的配置字段不该完全相同：{fields_by_source}'
+        assert any(c != combos[0] for c in combos[1:]), (
+            f'不同数据来源的配置字段不该完全相同：{fields_by_source}')
 
 
 @allure.feature('界面编辑器')
@@ -770,40 +777,196 @@ def test_chart_bind_cancel_after_filling(free_chart_page):
     expect(cp.widget_canvas).to_be_visible()
 
 
+def _field_token(name):
+    """「执行进度（progress） · float4」-> progress；没括号就用原名。"""
+    if '（' in name and '）' in name:
+        return name[name.find('（') + 1:name.find('）')].strip()
+    return name.split('·')[0].strip()
+
+
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('选完所有字段点「预览真实数据」，弹窗里出真实数据表格')
+@allure.title('选完字段点预览，表格列就是横轴+数值字段，并且有真实数据行')
 @allure.severity(allure.severity_level.BLOCKER)
 def test_chart_bind_preview_shows_real_data(free_chart_page):
     cp = free_chart_page
     cp.click_widget()
     cp.open_bind_dialog()
     cp.bind_pick_table()
-    cp.bind_pick_fields()
+    chosen = cp.bind_pick_fields()
 
     cp.bind_dialog_preview.click()
-    cp.page.wait_for_timeout(3500)
-    # 弹窗断言：出结果表格，有表头有数据行，两种提示都不该再出现
-    expect(cp.bind_preview_table).to_have_count(1)
-    assert cp.bind_preview_table.locator('thead th').count() >= 2, '预览表格至少两列（横轴 + 数值）'
-    assert cp.bind_preview_table.locator('tbody tr').count() > 0, '预览表格应该有数据行'
+    expect(cp.bind_preview_table).to_be_visible(timeout=15000)
     expect(cp.bind_invalid_hint).to_have_count(0)
     expect(cp.bind_need_table_hint).to_have_count(0)
+
+    headers = cp.bind_preview_headers()
+    rows = cp.bind_preview_table.locator('tbody tr')
+    first = cp.bind_preview_first_row()
+    assert len(headers) == 1 + len(chosen['数值字段']), (
+        f'预览表应是横轴 + {len(chosen["数值字段"])} 个数值列，实际表头 {headers}')
+    assert rows.count() > 0, '预览表格应该有数据行'
+    assert len(first) == len(headers), f'首行列数应等于表头，表头 {headers} 首行 {first}'
+    for name in chosen['数值字段']:
+        token = _field_token(name)
+        assert any(token.lower() in h.lower() or name.split('（')[0] in h for h in headers), (
+            f'预览表头应包含数值字段 {name}（{token}），实际 {headers}')
+    numeric_cells = 0
+    for cell in first[1:]:
+        try:
+            float(cell)
+            numeric_cells += 1
+        except ValueError:
+            pass
+    assert numeric_cells >= 1, f'预览首行应有真实数值，实际 {first}'
 
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-图表组件')
-@allure.title('保存绑定后弹窗关闭，画布上真的出图')
+@allure.title('预览后再保存，图上的系列名和数据点就是刚才那张预览表')
 @allure.severity(allure.severity_level.BLOCKER)
-def test_chart_bind_save_renders_chart(free_chart_bound):
-    cp = free_chart_bound
-    # 画布断言：占位文案没了，换成「已登记数据源」，并且真的画出了一块图
-    expect(cp.bind_dialog).to_have_count(0)
+def test_chart_bind_save_renders_chart(free_chart_page):
+    cp = free_chart_page
+    cp.click_widget()
+    # 未绑定先确认画的是演示系列，后面用来对比「真的换数据了」
+    demo_names = set(cp.chart_series_names())
+
+    cp.open_bind_dialog()
+    chosen = cp.bind_pick_table()
+    chosen.update(cp.bind_pick_fields())
+    cp.bind_dialog_preview.click()
+    expect(cp.bind_preview_table).to_be_visible(timeout=15000)
+    preview_headers = cp.bind_preview_headers()
+    preview_first = cp.bind_preview_first_row()
+
+    cp.bind_dialog_save.click()
+    cp.bind_dialog.wait_for(state='hidden', timeout=20000)
     expect(cp.widget_unbound_chip).to_have_count(0)
     expect(cp.widget_bound_chip).to_be_visible()
     expect(cp.widget_canvas).to_have_count(1)
     size = cp.widget_canvas.first.evaluate('el => [el.width, el.height]')
     assert size[0] > 0 and size[1] > 0, f'图表画布尺寸不该是 0，实际 {size}'
+
+    expected = sorted(chosen['数值字段'])
+    opt = cp.wait_chart(lambda o: sorted(eco.series_names(o)), expected)
+    names = eco.series_names(opt)
+    assert not (set(names) & DEMO_SERIES), f'保存后不应还是演示系列 {names}'
+    if demo_names:
+        assert set(names) != demo_names, f'保存后系列名应换成绑定字段，实际还是 {names}'
+
+    x_values = [str(value) for value in eco.as_list(eco.xaxis(opt).get('data'))]
+    assert preview_first[0] in x_values, (
+        f'预览首行横轴值 {preview_first[0]!r} 应出现在图上，实际 {x_values[:6]}…')
+
+    series_by_name = {item.get('name'): item for item in eco.series_list(opt)}
+    for name, cell in zip(chosen['数值字段'], preview_first[1:]):
+        value = float(cell)
+        points = eco.numeric_points(series_by_name[name].get('data'))
+        assert any(abs(value - point) < 1e-6 for point in points), (
+            f'预览表中 {name!r} 的值 {value} 应出现在同名系列，实际 {points[:12]}…')
+
+
+# ==================== 时序 / API 数据源 —— 冒烟 ====================
+# 只管「选完、保存、不崩、画布真的换成已绑定状态」，不像上面关系型那条深挖到
+# 图上每个数据点是否精确对得上——时序按时间粒度聚合、API 数据形状本来就不固定，
+# 精确断言的投入跟这两条路径的重要度不成比例，等真的出问题再针对性补。
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-图表组件')
+@allure.title('折线图绑定时序数据源（TDengine），保存后画布正常出图')
+@allure.severity(allure.severity_level.NORMAL)
+def test_chart_bind_timeseries_source_smoke(free_chart_page):
+    cp = free_chart_page
+    cp.click_widget()
+    cp.pick_option(cp.prop_chart_type, '折线')  # 折线图才推荐时序数据源，见上面的遍历用例
+
+    cp.open_bind_dialog()
+    source_name = next(name for name, _ in cp.bind_source_options() if 'TDengine' in name)
+    cp.bind_choose('数据来源', source_name)
+    cp.bind_pick_timeseries()
+
+    cp.bind_dialog_save.click()
+    cp.bind_dialog.wait_for(state='hidden', timeout=20000)
+    # 弹窗断言之外，顺带确认切数据源、选完这几步没有前端报错。
+    # 注意：时序数据源绑好之后画布上的状态文案是「已登记时序数据源」，不是
+    # widget_bound_chip 对应的通用「已登记数据源」，这里不复用那个 locator。
+    expect(cp.widget_unbound_chip).to_have_count(0)
+    expect(cp.widget_canvas).to_have_count(1)
+    size = cp.widget_canvas.first.evaluate('el => [el.width, el.height]')
+    assert size[0] > 0 and size[1] > 0, f'图表画布尺寸不该是 0，实际 {size}'
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-图表组件')
+@allure.title('图表绑定 API 数据源，保存后画布正常出图')
+@allure.severity(allure.severity_level.NORMAL)
+def test_chart_bind_api_source_smoke(free_chart_page):
+    cp = free_chart_page
+    cp.click_widget()
+    cp.open_bind_dialog()
+
+    cp.bind_choose('数据来源', '已登记 API 数据源')
+    cp.bind_pick_api()
+
+    cp.bind_dialog_save.click()
+    cp.bind_dialog.wait_for(state='hidden', timeout=20000)
+    expect(cp.widget_unbound_chip).to_have_count(0)
+    expect(cp.widget_bound_chip).to_be_visible()
+    expect(cp.widget_canvas).to_have_count(1)
+    size = cp.widget_canvas.first.evaluate('el => [el.width, el.height]')
+    assert size[0] > 0 and size[1] > 0, f'图表画布尺寸不该是 0，实际 {size}'
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-图表组件')
+@allure.title('时序数据源一个遥测参数都不勾，点保存卡在「配置不完整」')
+@allure.severity(allure.severity_level.NORMAL)
+def test_chart_bind_timeseries_save_without_params(free_chart_page):
+    # 遥测参数勾选框跟关系型的数值字段是同一套「至少选一个」防呆，这里确认
+    # 保存这条路是拦得住的（拦不住会直接保存出一张没数据的图）。
+    cp = free_chart_page
+    cp.click_widget()
+    cp.pick_option(cp.prop_chart_type, '折线')
+    cp.open_bind_dialog()
+
+    source_name = next(name for name, _ in cp.bind_source_options() if 'TDengine' in name)
+    cp.bind_choose('数据来源', source_name)
+    for label in ('TDengine 数据源', '卫星', '分系统'):
+        cp.bind_choose_first_real(label)
+    assert cp.bind_value_fields.count() > 0, '选完分系统后应该列出可勾选的遥测参数'
+    # 遥测参数一个都不勾，直接点保存
+
+    cp.bind_dialog_save.click()
+    cp.page.wait_for_timeout(2500)
+    expect(cp.bind_dialog, '一个遥测参数都没勾，保存不该成功、弹窗不该关').to_be_visible()
+    expect(cp.widget_unbound_chip).to_be_visible()
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-图表组件')
+@allure.title('【已知问题】时序数据源没勾遥测参数时点预览，提示语是关系型那条，对不上')
+@allure.severity(allure.severity_level.MINOR)
+@pytest.mark.xfail(
+    reason='产品缺陷：时序数据源一个遥测参数都没勾时点「预览真实数据」，'
+           '弹出的是关系型专属提示「请先选择数据源、Schema 和数据表」——'
+           '时序数据源根本没有 Schema / 数据表这两个概念，提示语文案复用错了。',
+    strict=True,
+)
+def test_chart_bind_timeseries_preview_without_params(free_chart_page):
+    cp = free_chart_page
+    cp.click_widget()
+    cp.pick_option(cp.prop_chart_type, '折线')
+    cp.open_bind_dialog()
+
+    source_name = next(name for name, _ in cp.bind_source_options() if 'TDengine' in name)
+    cp.bind_choose('数据来源', source_name)
+    for label in ('TDengine 数据源', '卫星', '分系统'):
+        cp.bind_choose_first_real(label)
+
+    cp.bind_dialog_preview.click()
+    cp.page.wait_for_timeout(2500)
+    expect(cp.bind_need_table_hint, '时序数据源缺参数时不该显示关系型的「Schema/数据表」提示语') \
+        .to_have_count(0)
 
 
 # ==========================================================================

@@ -138,6 +138,28 @@ def test_indicator_combined(free_indicator_page):
     expect(ip.widget_icon('NetworkCheckIcon')).to_have_count(1)
 
 
+# ==================== 实时遥测 ====================
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-指示牌组件')
+@allure.title('绑定上行信号强度后，指示牌显示负数 dBm 实时值和 LIVE 状态')
+@allure.severity(allure.severity_level.BLOCKER)
+def test_indicator_realtime_telemetry(free_indicator_realtime):
+    ip = free_indicator_realtime
+    ip.click_widget()
+    ip.prop_label.fill('上行信号强度')
+    ip.prop_unit.fill('dBm')
+
+    binding = ip.bind_realtime('上行信号强度（dBm） · ttc')
+
+    assert binding['item'] == '上行信号强度（dBm） · ttc'
+    expect(ip.widget_live).to_have_text('● LIVE')
+    expect(ip.widget_label).to_have_text('上行信号强度')
+    expect(ip.widget_unit).to_have_text('dBm')
+    value = ip.live_value()
+    assert -150 <= value < 0, f'上行信号强度应是负数 dBm 实时值，实际 {value}dBm'
+
+
 # ==================== 通用样式（共用用例集）====================
 
 class TestIndicatorCommonStyle(CommonStyleCases):

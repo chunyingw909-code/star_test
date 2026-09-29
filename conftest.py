@@ -39,13 +39,14 @@ except Exception:
 import allure
 import pytest
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from common.utils import read_yaml, resolve_path
+from common.utils import read_yaml, resolve_path, read_secrets
 # from PIL import Image
 # import shutil
 # from skimage.metrics import structural_similarity as ssim
 # import numpy as np
 
 from pages.guide.guide_page import GuidePage
+from pages.login.login_page import LoginPage
 
 config = read_yaml('config/config.yaml')
 
@@ -217,7 +218,10 @@ def browser():
     try:
         headless = os.getenv('CI', '') != ''
         b = pw.chromium.launch(headless=headless)
-        if not headless:
+        # 默认有头执行时把自动化窗口压到桌面底层，避免抢用户焦点；需要现场观察
+        # 浏览器动作时设置 PLAYWRIGHT_KEEP_VISIBLE=1，保留正常可见窗口。
+        keep_visible = os.getenv('PLAYWRIGHT_KEEP_VISIBLE', '') == '1'
+        if not headless and not keep_visible:
             import threading
             stop_flag = threading.Event()
             threading.Thread(
@@ -316,11 +320,23 @@ def screenshot_on_failure(request, page):
         print(f"失败截图抓取失败: {e}")
 
 
+# 打开登录页本身、不自动登录，给测登录表单的用例用。185 这类没有登录态的环境
+# 不会落到 /login，用例自己判断不到就 skip，不在这里硬编。
+@pytest.fixture
+def login_screen(page):
+    page.goto(config['url'])
+    page.wait_for_load_state('networkidle')
+    return LoginPage(page)
+
+
 # 只打开页面，给引导流程用例用
 @pytest.fixture
 def open_page(page):
     page.goto(config['url'])
     page.wait_for_load_state('networkidle')
+    if '/login' in page.url:
+        admin = read_secrets()['accounts']['admin']
+        LoginPage(page).login(admin['username'], admin['password'])
     return page
 
 
@@ -332,15 +348,35 @@ def _editor_entry_tab(page):
     return page.get_by_role('tab', name='界面编辑器').first
 
 
+def _set_admin_session(page):
+    """为非登录用例建立管理员会话，避免每条业务用例重复测试登录表单。"""
+    app_url = config['url'].rstrip('/')
+    admin = read_secrets()['accounts']['admin']
+    response = page.request.post(
+        app_url + '/api/auth/login',
+        data={'username': admin['username'], 'password': admin['password']},
+    )
+    body = response.json() if response.ok else {}
+    token = body.get('data', {}).get('token')
+    if not token:
+        raise RuntimeError(f'管理员接口登录失败：HTTP {response.status}')
+
+    page.goto(app_url + '/zh-CN/login', wait_until='domcontentloaded')
+    page.evaluate("token => localStorage.setItem('sarsat_token', token)", token)
+
+
 # 跳过引导进主页，给其他模块用例用
 @pytest.fixture
 def home_page(page):
-    # 偶发：goto 后应用会瞬时弹到 /zh-CN/login（后端抖动等），页面停在登录页。
+    # 登录不是这些业务用例的测试目标，先通过接口建立管理员会话；登录页本身另有专门用例。
     # 导航后确认主页标志元素（界面编辑器 tab）真的出现，没出现就重试，最多 3 次。
     # 新版模块导航带 data-testid=module-tab-editor；旧版/并存时按名字取。
+    _set_admin_session(page)
     for attempt in range(1, 4):
-        page.goto(config['url'])
-        page.wait_for_load_state('networkidle')
+        page.goto(config['url'], wait_until='domcontentloaded')
+        if '/login' in page.url:
+            _set_admin_session(page)
+            page.goto(config['url'], wait_until='domcontentloaded')
         GuidePage(page).complete()
         editor_button = _editor_entry_tab(page)
         try:

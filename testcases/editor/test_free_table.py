@@ -12,15 +12,39 @@
   四、点击事件         —— 共用用例集
 
 ⚠️ 数据绑定弹窗的三级下拉（关系型数据源 / Schema / 数据表）不写死任何库表名：
-   每个数据源都试、每个 Schema 都试，用上第一张底下真有表的。
+   第一次从真实 UI 找到可用表，同一 pytest 会话的后续用例复用该路径；
+   路径失效时自动回退遍历数据源和 Schema。
 """
 import time
 
 import allure
+import pytest
 from playwright.sync_api import expect
 
 from common.number_input import check_number_spinner
 from testcases.editor.click_action_cases import ClickActionCases
+
+
+def assert_full_column_sort(tp, header):
+    """点击指定表头两次，校验该字段的整个结果集确实升序、降序。"""
+    if tp.total_rows() < 2:
+        pytest.skip(f'「{header}」数据不足 2 行，无法验证排序')
+
+    tp.sort_by(header)
+    order1 = tp.all_column_values(header)
+    tp.sort_by(header)
+    order2 = tp.all_column_values(header)
+
+    total = tp.total_rows()
+    assert len(order1) == len(order2) == total, \
+        f'「{header}」排序应覆盖全部 {total} 行，实际 {len(order1)} / {len(order2)}'
+    assert order1 == list(reversed(order2)), \
+        f'「{header}」两次排序不是互为倒序：{order1} / {order2}'
+
+    nonempty1 = [value for value in order1 if value]
+    nonempty2 = [value for value in order2 if value]
+    assert sorted(nonempty1) in (nonempty1, nonempty2), \
+        f'「{header}」两次排序都不是全量升序：{order1} / {order2}'
 
 
 # ==========================================================================
@@ -127,6 +151,23 @@ def test_table_max_height(free_table_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')
+@allure.title('最大高度从 250 改回 0，滚动容器解除固定上限并恢复自适应')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_table_max_height_adaptive(free_table_page):
+    tp = free_table_page
+    tp.click_widget()
+
+    tp.prop_max_height.fill('250')
+    expect(tp.widget_table_container).to_have_css('max-height', '250px')
+
+    tp.prop_max_height.fill('0')
+
+    expect(tp.prop_max_height).to_have_value('0')
+    expect(tp.widget_table_container).to_have_css('max-height', 'none')
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-表格组件')
 @allure.title('关闭启用排序，表头排序按钮消失；打开后回到 5 个')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_table_sort_switch(free_table_page):
@@ -147,6 +188,14 @@ def test_table_sort_switch(free_table_page):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')
+@allure.title('未绑定演示数据：点故障编码表头两次，24 行全量升序、降序')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_table_demo_sort(free_table_page):
+    assert_full_column_sort(free_table_page, '故障编码')
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-表格组件')
 @allure.title('启用分页开关来回切，单选状态同步')
 @allure.severity(allure.severity_level.NORMAL)
 def test_table_pagination_switch(free_table_page):
@@ -158,6 +207,32 @@ def test_table_pagination_switch(free_table_page):
     expect(tp.pagination_radio('否')).to_be_checked()
     tp.pagination_radio('是').click()
     expect(tp.pagination_radio('是')).to_be_checked()
+
+
+@allure.feature('界面编辑器')
+@allure.story('自由布局-表格组件')
+@allure.title('未绑定演示数据分页：第 1 页 20 行，下一页显示剩余 4 行，返回后恢复')
+@allure.severity(allure.severity_level.CRITICAL)
+def test_table_demo_pagination(free_table_page):
+    tp = free_table_page
+
+    # 第 1 页：24 条演示数据中的前 20 条。
+    expect(tp.widget_pager_text).to_have_text('1–20 of 24')
+    assert tp.widget_row_count() == 20
+    expect(tp.widget_pager_previous).to_be_disabled()
+    expect(tp.widget_pager_next).to_be_enabled()
+
+    # 翻到第 2 页：只剩 4 条，前进键禁用、后退键可用。
+    tp.widget_pager_next.click()
+    expect(tp.widget_pager_text).to_have_text('21–24 of 24')
+    assert tp.widget_row_count() == 4
+    expect(tp.widget_pager_previous).to_be_enabled()
+    expect(tp.widget_pager_next).to_be_disabled()
+
+    # 返回第 1 页，行数和分页文案一起恢复。
+    tp.widget_pager_previous.click()
+    expect(tp.widget_pager_text).to_have_text('1–20 of 24')
+    assert tp.widget_row_count() == 20
 
 
 @allure.feature('界面编辑器')
@@ -292,17 +367,18 @@ def test_table_bound_filter(free_table_bound):
 
 @allure.feature('界面编辑器')
 @allure.story('自由布局-表格组件')
-@allure.title('点表头排序，行序实时变化，无需保存')
+@allure.title('真实数据：点实际字段表头两次，整个结果集全量升序、降序')
 @allure.severity(allure.severity_level.CRITICAL)
 def test_table_bound_sort_realtime(free_table_bound):
     tp = free_table_bound
-    header = tp.widget_headers()[0]
-    before = tp.widget_column_values(header)[:5]
+    tp.click_widget()
+    # 用控件允许的最大页大小减少翻页次数，断言仍覆盖整个结果集。
+    tp.prop_page_size.fill('100')
+    expect(tp.prop_page_size).to_have_value('100')
+    tp.page.wait_for_timeout(1500)
 
-    tp.sort_by(header)          # 再点一次，方向翻转
-    after = tp.widget_column_values(header)[:5]
-    # 画布断言：不点保存，行序就变了
-    assert before != after, f'点排序表头后行序应该实时变化，前 {before} 后 {after}'
+    header = tp.widget_headers()[0]
+    assert_full_column_sort(tp, header)
 
 
 @allure.feature('界面编辑器')

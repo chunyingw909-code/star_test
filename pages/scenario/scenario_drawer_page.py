@@ -63,8 +63,7 @@ class ScenarioDrawerPage:
         # ==================== 场景 Tab - 模板库弹窗 ====================
         self.template_dialog = page.get_by_role(
             'dialog', name='训练场景模板')
-        self.template_test_card = self.template_dialog.get_by_role(
-            'button', name='test FULL_SATELLITE', exact=True)
+        self.template_cards = self.template_dialog.get_by_role('button')
         self.template_backdrop = page.locator('.MuiBackdrop-root')
 
         # ==================== 场景 Tab - 快速创建第一步 ====================
@@ -138,6 +137,47 @@ class ScenarioDrawerPage:
         """读取当前搜索条件下显示的全部场景名称。"""
         return [text.strip() for text in self.scenario_names.all_inner_texts()]
 
+    def scenario_inventory(self):
+        """通过 222 的场景接口读取当前真实场景，不依赖固定名称或数据库 ID。"""
+        return self.page.evaluate(
+            """async () => {
+                const payload = await (await fetch('/api/scenarios')).json();
+                const rows = Array.isArray(payload) ? payload : (payload?.data ?? []);
+                return rows.map(row => ({
+                    id: row.id,
+                    name: row.name,
+                    template: Boolean(row.template),
+                }));
+            }"""
+        )
+
+    def template_inventory(self):
+        """通过模板接口读取当前真实模板，供模板库 UI 断言使用。"""
+        return self.page.evaluate(
+            """async () => {
+                const token = localStorage.getItem('sarsat_token');
+                const response = await fetch('/api/scenario-templates', {
+                    headers: {'Authorization': `Bearer ${token}`},
+                });
+                if (!response.ok) {
+                    throw new Error(`读取场景模板失败：HTTP ${response.status}`);
+                }
+                const payload = await response.json();
+                const rows = Array.isArray(payload) ? payload : (payload?.data ?? []);
+                return rows.map(row => ({
+                    id: row.id,
+                    name: row.name,
+                    description: row.description ?? '',
+                    type: row.type ?? row.definition?.type ?? '',
+                }));
+            }"""
+        )
+
+    def template_card(self, template):
+        """返回接口所给模板在模板库里的卡片按钮。"""
+        return self.template_cards.filter(
+            has_text=template['name']).filter(has_not_text='删除模板').first
+
     def saved_count(self):
         """读取“已存场景 (N)”中的 N。"""
         match = re.search(r'\((\d+)\)', self.saved_count_text.inner_text())
@@ -157,28 +197,30 @@ class ScenarioDrawerPage:
         self.scenario_delete_buttons.nth(self._scenario_index(name)).click()
         self.delete_dialog.wait_for(state='visible')
 
-    def set_current_scenario(self, name):
-        """按名称设置固定的当前场景，给切换场景测试准备稳定前置。"""
-        scenario = self.page.evaluate(
-            """async name => {
-                const payload = await (await fetch('/api/scenarios')).json();
-                const rows = Array.isArray(payload) ? payload : (payload?.data ?? []);
-                const scenario = rows.find(row => row.name === name);
-                if (scenario) localStorage.setItem('sarsat_last_scenario', scenario.id);
-                return scenario ? {id: scenario.id, name: scenario.name} : null;
-            }""",
-            name,
-        )
-        assert scenario, f'找不到场景「{name}」，无法准备切换测试前置'
+    def confirm_delete_and_wait(self):
+        """确认删除并等待 DELETE /api/scenarios/{id} 成功返回。"""
+        with self.page.expect_response(
+                lambda response: response.request.method == 'DELETE'
+                and '/api/scenarios/' in response.url) as response_info:
+            self.delete_confirm_button.click()
+        response = response_info.value
+        assert response.ok, f'删除场景接口失败：HTTP {response.status}'
+        self.delete_dialog.wait_for(state='hidden')
+
+    def set_current_scenario(self, scenario):
+        """用场景接口返回的 id 设置当前场景，给切换测试准备稳定前置。"""
+        self.page.evaluate(
+            "id => localStorage.setItem('sarsat_last_scenario', id)", scenario['id'])
         self.page.reload(wait_until='networkidle')
         self.open()
         deadline = self.page.evaluate('Date.now()') + 10000
         while self.page.evaluate('Date.now()') < deadline:
             if self.current_scenario_chip.count() and (
-                    self.current_scenario_chip.inner_text().strip() == name):
+                    self.current_scenario_chip.inner_text().strip() == scenario['name']):
                 return
             self.page.wait_for_timeout(200)
-        raise AssertionError(f'设置当前场景后，顶部仍未显示「{name}」')
+        raise AssertionError(
+            f'设置当前场景后，顶部仍未显示「{scenario["name"]}」')
 
     def return_home_and_open(self):
         """从场景定义页回到主页并重新打开场景抽屉。"""
@@ -194,8 +236,7 @@ class ScenarioDrawerPage:
         if name not in self.visible_scenario_names():
             return
         self.click_delete(name)
-        self.delete_confirm_button.click()
-        self.delete_dialog.wait_for(state='hidden')
+        self.confirm_delete_and_wait()
         deadline = self.page.evaluate('Date.now()') + 5000
         while self.page.evaluate('Date.now()') < deadline:
             if name not in self.visible_scenario_names():
